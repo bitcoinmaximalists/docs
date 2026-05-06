@@ -1,0 +1,2 @@
+# docs
+Bitcoin Maximalists Documentation
