@@ -1,0 +1,73 @@
+import { Callout } from 'nextra/components'
+
+# Welsh Street User Protection
+
+The Welsh Street Exchange leverages the security and user-level protections of the Stacks blockchain to implement slippage in an innovative way.
+
+## Post-Conditions
+
+In Stacks, post conditions are transaction-level assertions enforced by the Clarity runtime at commit. They state who can send or receive how much of which asset. If any post-condition is violated, the entire transaction aborts with no state changes — no partial swaps, no surprise fees.
+
+Post-conditions are not Clarity code. They are attached to the signed transaction and enforced by nodes when the transaction is processed. This keeps contract logic lean and efficient while giving users chain-native guarantees and protection.
+
+### Implementation 
+
+**Client**
+
+The client, or in this case the frontend, builds the transactions with inputs from the user. The wallet or app constructs the transaction and attaches post-conditions using Stacks helper functions. The wallet then broadcasts the transaction to a Stacks node.
+
+**Chain**
+
+The chain, or in this case Stacks, is the runtime environment where the post-conditions are enforced. When the Clarity function executes, the runtime environment tracks real asset changes for principals mentioned in the post-conditions. At the end, it checks those changes against the declared bounds in post-conditions. If any token amount exceeds a bound, the transaction reverts.
+
+## Slippage
+
+In the Welsh Street Exchange, the upper and lower bounds of the post-conditions are defined by slippage.  There are no slippage calculations on-chain. The user sets their slippage tolerance in the frontend.
+
+The slippage upper and lower bounds protect the user and the liquidity pool. Because the liquidity pool is composed of user-provided liquidity, the AMM effectively protects all users on every transaction.
+
+Here is an example of slippage explicitly stated:
+
+<div className="equation">
+  The user will send at most X of token A and must receive at least Y of token B.
+</div>
+
+If the pool’s state would result in less than Y, the tx fails and the user is protected against this loss. For the same transaction, from the exchange's point-of-view:
+
+<div className="equation">
+  The pool will receive at least X of token A not send more than Y of token B in this trade.
+</div>
+
+This prevents a single trade from extracting an outsized windfall—which would otherwise be a loss to liquidity providers. Protecting the pool protects all users in the transaction as LPs are users and owners of the liquidity pool.
+
+### Example 
+
+The example is a scenario when a very large trade occurs right before a user makes a trade in the same direction. Assume a whale wants to buy a large amount of token B. The whale’s trade pushes the price of token B up by making it scarcer in the pool. If the whale trade executes before the user can analyze the new price, the user would receive fewer B for the same 1,000 unless post conditions stop the trade.
+
+Transaction fees and the share fee are not including in the examples for simplicity.
+
+<div className="equation">
+  The user swaps 1,000 A → 1,000 B with a 1% slippage setting. 
+
+  A whale submits a huge A → B swap before the user’s tx confirms.
+</div>
+
+From this quote and slippage, the frontend computes the slippage bounds where the user sends exactly 1,000 A from the user principal. The AMM contract must send between 990 B and 1,010 B to the user. In other words the expected output must be 1,000 B with the upper and lower bounds:
+
+<div className="equation">
+Upper bound = floor(1,000 × (1 + 0.01)) = floor(1,010) = 1,010 B
+
+Lower bound = floor(1,000 × (1 − 0.01)) = floor(990) = 990 B
+</div>
+
+Two possible outcomes at commit time:
+
+**1. Whale tx confirms *before* the user**
+
+The price moves down sharply and the user's tx is calculate on the new pool state after teh whale swap. Re-evaluating the user’s tx against the new pool state now yields 960 B out for the 1,000 A input. `960 B < lower bound (990 B)` results in the lower bound failing. The transaction reverts and the user keeps 1,000 A.
+
+**2. Whale tx confirms *after* the user**
+
+The current state at execution still supports 995 B out for 1,000 A in. `995 B` lies between `lower bound (990)` and `upper bound (1,010)`. All post-conditions pass and the transaction executes. The user receives 995 B for 1,000 A which was better than the lower bound the user set.
+
+<Callout type="info">Post-conditions and Slippage help protect users and liquidity providers from unexpected or undesirable results</Callout>

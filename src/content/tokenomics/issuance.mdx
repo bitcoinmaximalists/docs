@@ -1,0 +1,230 @@
+import { Callout } from 'nextra/components'
+
+# Issuance Policy
+
+STREET is the rewards asset in the Welsh Street exchange. It is designed to incentivize liquidity around WELSH, a fully distributed fixed-supply community token.
+
+The core mechanism is straightforward: when STREET is minted and distributed to liquidity providers, those rewards can be sold into the WELSH/STREET market, creating recurring market flow around a base asset that has no ongoing issuance.
+
+This page explains the issuance policies commonly used in crypto and why STREET uses a fixed-emission design. 
+
+## Issuance Models
+
+This section describes three common issuance models and why STREET uses a fixed-emission design. All issuance models assume an initial STREET circulating supply of 5,000,000,000 STREET tokens.
+
+### Fixed Inflation
+
+In traditional finance, modern monetary policy is often discussed in terms of an annual inflation target. This is a fiat-style framing: supply expands at a policy-set percentage rate per year, similar to how central banks discuss inflation and money supply growth.
+
+For Welsh Street’s reference model, the calculations use a 3.29% annual rate, corresponding to the average annual inflation rate of the US dollar from 1914 to 2026 based on the Consumer Price Index (CPI).
+
+The mechanical consequence is exponential growth: as total supply increases, the absolute number of new tokens created each year increases as well. Over long horizons, that compounding is less a “theory debate” and more an engineering constraint for smart contracts that must operate safely with bounded integers and predictable execution costs.
+
+<table className="pros-cons">
+	<thead>
+		<tr>
+			<th className="pros">Pros</th>
+			<th className="cons">Cons</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td className="pros">Aligns with the inflation-target framing common in modern monetary policy</td>
+			<td className="cons">Exponential supply growth becomes impractical over long horizons</td>
+		</tr>
+		<tr>
+			<td className="pros">Easy to communicate as a single annual rate</td>
+			<td className="cons">Large numbers increase overflow/precision risk and can complicate accounting</td>
+		</tr>
+	</tbody>
+</table>
+
+The figure below shows a fixed-inflation-rate token over 100 cycles.
+
+- Top Panel: Total supply accelerates upward (exponential growth)
+- Middle Panel: Inflation rate stays constant
+- Bottom Panel: Annual emissions rise over time as supply grows
+
+![Supply, Inflation and Emissions for a Fixed-Inflation rate token over 100 cycles](/figures/fixed_inflation_100_tp.png)
+
+<Callout type="error">In a fixed-inflation model, the primary problem is not “inflation”; it is that compounding supply growth is a poor fit for long-lived on-chain systems. </Callout>
+
+### Fixed Supply
+
+In Bitcoin, the issuance schedule starts with a relatively high block reward and then reduces that reward over time through periodic halvings. This is why a halving-to-cap policy is often referred to as Bitcoin-style issuance: the block subsidy is designed to shrink on a predictable cadence, making new supply increasingly scarce and pushing total supply toward a fixed terminal cap.
+
+The tradeoff is explicit. Halving delivers a strong scarcity story and concentrates incentives early, but it is designed to phase out issuance. For a rewards token, that endpoint is not a detail — it is the core constraint. If liquidity incentives are meant to persist, an issuance policy that intentionally drives emissions toward zero will eventually stop being an incentive mechanism.
+
+<table className="pros-cons">
+	<thead>
+		<tr>
+			<th className="pros">Pros</th>
+			<th className="cons">Cons</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td className="pros">Clear terminal cap and scarcity narrative</td>
+			<td className="cons">Emissions decay toward zero, so rewards fade out</td>
+		</tr>
+		<tr>
+			<td className="pros">Strong early incentives with a predictable schedule</td>
+			<td className="cons">Built-in reward decay becomes a structural limitation</td>
+		</tr>
+	</tbody>
+</table>
+
+The figure below shows a halving-to-cap schedule over 100 cycles.
+
+- Top Panel: Total supply approaches a ceiling
+- Middle Panel: Inflation rate collapses toward zero
+- Bottom Panel: Annual emissions fall over time
+
+![Supply, Inflation and Emissions for a Fixed-Supply token with halving over 100 cycles](/figures/fixed_supply_100_tp.png)
+
+<Callout type="warning">In a fixed-supply model, emissions are designed to fade out, so rewards stop being a reliable long-term incentive.</Callout>
+
+### Fixed Emissions
+
+A fixed-emission policy mints a constant number of tokens each issuance event.
+
+The documentation refers to this as *DOGE-style* because Dogecoin is a well-known example of long-run fixed issuance per block. After an early period of staged reward reductions, Dogecoin stopped decreasing the block reward (around block ~600,000) and settled into a constant reward of 10,000 DOGE per block, producing steady absolute issuance (about 14.4 million DOGE per day at ~1-minute blocks) while the percentage inflation rate declines over time. The nickname is also a cultural nod: WELSH is a dog meme token, and DOGE is an early and widely recognized dog meme asset in crypto.
+
+The mechanical consequence is linear supply growth: the supply line climbs at a steady pace because the same amount is added each period. At the same time, the inflation rate declines over time, because that fixed emission becomes a smaller percentage of a growing total supply.
+
+For a rewards token, the key property is that emissions do not phase out. If the protocol is meant to keep paying liquidity incentives over long horizons, a policy that keeps emissions structurally available is a better fit than one designed to end them.
+
+<table className="pros-cons">
+	<thead>
+		<tr>
+			<th className="pros">Pros</th>
+			<th className="cons">Cons</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td className="pros">Emissions do not end, so rewards can remain structurally available</td>
+			<td className="cons">Ongoing dilution in absolute terms (new tokens continue to be created)</td>
+		</tr>
+		<tr>
+			<td className="pros">Simple accounting: a fixed amount minted per event</td>
+			<td className="cons">Requires a clear justification for why an uncapped rewards asset is appropriate</td>
+		</tr>
+		<tr>
+			<td className="pros">Inflation rate trends downward as supply grows</td>
+			<td className="cons">Not a scarcity-first narrative like a hard cap</td>
+		</tr>
+	</tbody>
+</table>
+
+This is the issuance policy STREET uses: a fixed amount of STREET is emitted per Bitcoin block (subject to the system’s triggering constraints). The result is a perpetual rewards stream with a declining inflation rate over time.
+
+The figure below shows a fixed-emission token over 100 cycles.
+
+- Top Panel: Total supply grows linearly
+- Middle Panel: Inflation rate declines over time
+- Bottom Panel: Annual emissions stay flat
+
+![Supply, Inflation and Emissions for a Fixed-Emission token over 100 cycles](/figures/fixed_emission_100_tp.png)
+
+<Callout type="info">A fixed-emission model keeps rewards structurally available while the inflation rate declines over time.</Callout>
+
+## The Great Debate
+
+### Infinite Supply vs Fixed Supply
+
+This is a “great debate” in crypto because it sits under Bitcoin’s core argument: a fixed-supply base asset is meant to resist currency debasement. In contrast, Keynesian and modern monetary theory frameworks often treat controlled inflation as a feature that can support growth and expand the money supply.
+
+Bitcoiners and many crypto natives are therefore skeptical of infinite-supply tokens because supply expansion can look like debasement, and because it increases reliance on governance and issuer credibility.
+
+For a base asset and store-of-value, fixed supply is the correct choice. That is what Bitcoin is. That is what WELSH is. Fixed-supply, store-of-value assets.
+
+### Meme Rewards Design
+
+STREET is not designed to be a base asset or community coin. STREET is a rewards token. Its purpose is to provide a native incentive layer that a fixed-supply community coin does not have.
+
+In this context, “infinite supply” means the protocol can continue minting rewards over time instead of converging to a terminal cap. Both Fixed Inflation (Fiat-style) and Fixed Emissions (DOGE-style) are infinite-supply policies; the difference is shape: fixed inflation compounds supply, while fixed emissions grows supply linearly and becomes disinflationary over time.
+
+That framing makes the roles clearer: keep the store-of-value role fixed-supply (WELSH), and use an infinite-supply policy only for a separate rewards asset (STREET) with a transparent schedule and a bounded purpose.
+
+The design choice is therefore narrow: should STREET be an infinite-supply rewards token or a fixed-supply token? Meme Rewards is designed as a perpetual rewards token (STREET) paired against a fixed-supply base (WELSH). If rewards are meant to persist, the rewards token cannot be designed to run out of emissions.
+
+<table className="pros-cons">
+	<thead>
+		<tr>
+			<th className="pros">Infinite Supply</th>
+			<th className="cons">Fixed Supply</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td className="pros">Rewards can continue indefinitely</td>
+			<td className="cons">Rewards run out and incentives fade</td>
+		</tr>
+		<tr>
+			<td className="pros">Adds incentives as no WELSH can be minted</td>
+			<td className="cons">Reverts to fee-only incentives</td>
+		</tr>
+		<tr>
+			<td className="pros">Simple fixed-emission schedule</td>
+			<td className="cons">Forces a reset or second regime</td>
+		</tr>
+		<tr>
+			<td className="pros">Disinflationary over time (fixed emissions)</td>
+			<td className="cons">Store-of-value framing duplicates WELSH</td>
+		</tr>
+	</tbody>
+</table>
+
+### Practical Alternative
+
+There is a practical alternative for perpetual rewards under a fixed-supply rewards token: periodically issue a new rewards token and migrate incentives to the new token.
+
+That pattern is common in crypto markets: incentives get refreshed by launching new tokens, liquidity fragments across versions, and participants learn to expect repeated “reset” cycles.
+
+Meme Rewards is designed to avoid that treadmill. It keeps the monetary roles clean: a fixed-supply base asset (WELSH) paired with a perpetual rewards token (STREET).
+
+<Callout type="warning">For a persistent rewards token, fixed supply is the wrong tool because it is designed to end emissions.</Callout>
+
+## Fixed Inflation vs Fixed Emissions
+
+After ruling out fixed-supply issuance for a persistent rewards token (while still treating fixed supply as the preferred policy for store-of-value base assets like Bitcoin and WELSH), the remaining decision is between the two infinite-supply families: fixed inflation and fixed emissions.
+
+The fixed emission model is preferred for STREET because it keeps the rewards budget structurally available without compounding. The amount minted each period stays constant, supply grows linearly, and the percentage inflation rate declines over time.
+
+In contrast, fixed inflation grows supply exponentially and mints an ever-larger absolute number of tokens each year. Over long horizons, that compounding is not just an economic choice; it becomes an engineering constraint for on-chain systems that must stay within bounded integer ranges and predictable accounting.
+
+Finally, fixed emissions is not a novel design in crypto. Dogecoin is a widely recognized example of fixed issuance per block, and it has historically remained among the largest crypto assets by market capitalization for long stretches. That history makes “fixed emissions” easier to accept as a practical monetary policy for a meme-adjacent rewards token.
+
+<table className="pros-cons">
+	<thead>
+		<tr>
+			<th className="pros">Fixed Emissions</th>
+			<th className="cons">Fixed Inflation</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td className="pros">Linear supply growth (no compounding)</td>
+			<td className="cons">Compounding supply growth over time</td>
+		</tr>
+		<tr>
+			<td className="pros">Predictable issuance per period</td>
+			<td className="cons">Ever-larger absolute issuance each year</td>
+		</tr>
+		<tr>
+			<td className="pros">Keeps long-run supply growth manageable</td>
+			<td className="cons">Compounding can push supply and emissions to impractical scales over long horizons</td>
+		</tr>
+	</tbody>
+</table>
+
+The figure below compares fixed emissions (DOGE-style) with fixed inflation (fiat-style) over 100 cycles. 
+
+- Top Panel: Supply growth is linear with fixed emissions versus exponential with fixed inflation
+- Middle Panel: Inflation rate trends toward zero with fixed emissions while it stays constant with fixed inflation
+- Bottom Panel: Annual emissions stay flat with fixed emissions but grow exponentially with fixed inflation
+
+![Fixed Emission vs Fixed Inflation (DOGE-style vs Fiat-style) over 100 cycles](/figures/doge_vs_fiat_100_tp.png)
+
+<Callout type="info" emoji="🚀">Fixed emissions are best for meme rewards because rewards are perpetual without compounding supply growth and the inflation rate declines over time.</Callout>

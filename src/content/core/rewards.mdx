@@ -1,0 +1,834 @@
+import { Callout } from 'nextra/components'
+
+# Welsh Street Rewards System
+
+This section describes the technical implementation and the contracts of the Welsh Street Rewards System also known as the Meme Rewards Protocol.  For a description of Meme Rewards including the three-token system please see [Meme Rewards](../solution#meme-rewards).
+
+Welsh Street implements a zero debt cumulative distribution system with global index accounting. This type of rewards system is superior in blockchains as it provides fair token distribution to liquidity providers while maintaining system simplicity and gas efficiency. This system provides a superior user experience compared to traditional AMM distribution mechanisms. Key aspects of the system are described below.
+
+<Callout type="warning">Always Claim Rewards before modifying liquidity positions to avoid losing rewards. This includes transferring or swapping CREDIT</Callout>
+
+## Definitions
+
+### Cumulative Distribution
+
+The cumulative distribution system means distributions can be claimed without withdrawing liquidity. Unlike traditional AMMs where LP tokens must be burned to access distributions, Welsh Street enables users to keep providing liquidity while claiming, compound positions without losing accumulated distributions, and maintain market exposure during distribution claiming.
+
+### Debt Adjustment
+
+Debt adjustment keeps the user's index unchanged and recalculates the debt offset to account for the new balance. This requires tracking what portion of debt is claimed history versus the preservation offset This method is typically more difficult because the contract must distinguish between the two types of debt during subsequent operations.
+
+### Global Index
+
+Rewards are tracked with a single ever‑increasing global index per token. Each user stores a snapshot of that index and their LP balance. Claimable rewards are computed from the difference between the current global index and the user’s stored index.
+
+Explicitly, this index is the total rewards accumulated per 1 CREDIT LP token (for each reward token). Ignoring debt, the claimable amount is calculated by the equation:
+
+<div className="equation">
+  unclaimed = lpBalance × (globalIndex − userIndex) / PRECISION
+</div>
+
+Where `PRECISION` is set to 18-decimal places, giving the rewards math twelve extra digits of fixed‑point precision beyond the usual 6‑decimal SIP‑010 tokens, which minimizes dust and rounding error in small reward distribution calculations.
+
+The system only adds to the global indexes; it never iterates over all users to distribute rewards. Every time a user changes their liquidity position, the global index is recorded as their index for each token.
+
+### Index adjustment
+
+Index adjustment moves the user's index backward or forward so the reward formula yields the correct unclaimed amount on the new balance, then zeroes the debt. The adjusted index doubles as a timestamp of the last liquidity event, and zeroed debt keeps the state clean. In other words, the user debt is only tracked between liquidity events and no total debt needs to be tracked onchain.
+
+### Precision
+
+The `PRECISION` constant is a fixed-point scaling factor that enables fractional arithmetic in Clarity's integer-only environment. Clarity does not support floating-point numbers, so the rewards system uses scaled integer math to preserve fractional precision during division operations.
+
+The constant is set to `1000000000000000000` (10^18), providing 18 decimal places of internal precision. Because SIP-010 tokens use 6 decimals, `PRECISION` adds 12 extra digits beyond standard token precision, minimizing rounding errors when distributing small reward amounts across large LP supplies.
+
+The scaling pattern operates in two phases:
+
+**Adding rewards to the global index:**
+
+<div className="code-transparent">
+```clarity
+;; scale UP before dividing to preserve fractional precision
+(index-increment (if (> total-lp u0)
+  (/ (* amount PRECISION) total-lp)
+  u0))
+```
+</div>
+
+Reward amounts are multiplied by `PRECISION` before division, creating a high-precision "rewards per LP token" value stored in the global index.
+
+**Calculating user rewards:**
+
+<div className="code-transparent">
+```clarity
+;; scale DOWN after multiplication to get actual claimable amount
+(earned-a (/ (* balance (- current-global-a user-index-a)) PRECISION))
+```
+</div>
+
+The scaled index difference is multiplied by the user's balance, then divided by `PRECISION` to yield the actual claimable token amount.
+
+**Example calculation:**
+
+When 1 WELSH (1,000,000 µWELSH in 6-decimal precision) is distributed across 1,000,000 LP tokens:
+
+<div className="code-transparent">
+```clarity
+;; index increment calculation
+(/ (* 1000000 1000000000000000000) 1000000)
+= 1000000000000000000
+
+;; represents exactly 1.0 µWELSH per LP token with zero precision loss
+```
+</div>
+
+Without the `PRECISION` scaling factor, integer division would truncate fractional remainders on every distribution, causing substantial rounding errors that accumulate over time. The 18-decimal precision ensures accurate accounting even for micro-distributions across large LP pools.
+
+### Preservation Method
+
+When a user changes their liquidity position, the contract logic updates the user's onchain accounting map. There are two methods to preserve unclaimed rewards when a user's CREDIT balance changes: [Debt Adjustment](rewards#debt-adjustment) or [Index Adjustment](rewards#index-adjustment).
+
+The Welsh Street rewards system uses index adjustment exclusively. Zeroing debt on every position change means the user record always reflects a single, unambiguous snapshot with no accumulated synthetic debt offsets to recalculate. This makes the math simpler to verify and the on-chain state easier to audit.
+
+### Zero Debt
+
+When a user joins the system or their position is (re)registered, their `debt-a` and `debt-b` values start at `0`. Users do not begin with an artificial backlog that must be worked off. Instead, each user’s snapshot is taken at the current global index, and any future increase in that index is attributable to that user. New LPs therefore begin earning immediately, and claims can be made without withdrawing, because the system never places a user in a negative or locked “debt” state relative to future distributions.
+
+## Rewards Sources
+
+Welsh Street distributions accumulate from three primary and one temporary on-chain sources. 
+
+### Trading Fee Allocation
+
+Trading activity in the WELSH/STREET pool routes a portion of swap fees from both WELSH → STREET and STREET → WELSH swaps directly into the rewards pool, so fee flow is continuously reflected in distribution balances (see the liquidity mechanics in [liquidity](liquidity)). 
+
+### Street Token Emissions
+
+STREET token emissions, defined by the fixed-emission policy in [issuance](../tokenomics/issuance) and executed by the `emission-controller` contract described in [emissions](../tokenomics/emissions), allocate a constant amount of STREET into the rewards pool over time, providing a persistent source of distribution funding. 
+
+### Donations and Emissions
+
+The third contribution system, implemented via `donate-rewards` in the rewards contract and aligned with the community-focused allocation described in [distribution](../tokenomics/distribution), allows any participant to send additional WELSH or STREET into the pool, with all such donations tracked and folded into the same global index accounting as fees and emissions.
+
+### Genesis NFT
+
+The Genesis NFT event is a one-time, capped bootstrap for both STREET distribution and the rewards pool. During NFT mints users forward 1,000 WELSH into `street-rewards` which is distributed to Credit holders. This is a temporary event that finalizes after 21,000 NFTs have been minted but it is distribution source.  For more information see [distribution](../tokenomics/distribution).
+
+## Accounting Structure
+
+The rewards system tracks each user's position and entry timing through a cumulative index system with zero debt initialization:
+
+<div className="code-transparent">
+```clarity
+;; street rewards data structure
+
+;; 18-decimal fixed scaling factor
+(define-constant PRECISION u1000000000000000000)
+
+;; global cumulative indexes (never decrease, only increase)
+(define-data-var global-index-a uint u0)
+(define-data-var global-index-b uint u0)
+
+;; cleanup function call tracking 
+(define-data-var last-cleanup-block uint u0)
+
+;; total distributes tracked for onchain accounting
+(define-data-var total-distributed-a uint u0)
+(define-data-var total-distributed-b uint u0)
+
+;; total claimed tracked for onchain accounting
+(define-data-var total-claimed-a uint u0)
+(define-data-var total-claimed-b uint u0)
+
+(define-map users
+  { account: principal }
+  {
+    ;; user's LP token-balance
+    balance: uint,
+
+    ;; block "snapshot" when user joined/updated
+    block: uint,      
+    
+    ;; accumulated claimed tokens (zero debt initialization)
+    debt-a: uint,        
+    debt-b: uint,        
+    
+    ;; user's snapshot of global-index at join or change liquidity
+    index-a: uint,       
+    index-b: uint        
+  }
+)
+```
+</div>
+
+## User Functions
+
+User functions are public functions available to all users to call and interact with the Welsh Street Rewards System.  The main functions are `claim-rewards` and `donate-rewards`.
+
+### Claim Rewards
+
+The `claim-rewards` function calculates how many WELSH and STREET tokens are currently owed to the caller based on their CREDIT balance and reward indexes. It transfers any claimable amounts from the reward pool to the caller, updates global claimed totals, and refreshes the caller’s snapshot in the `users` map so future claims remain consistent.
+
+<div className="code-transparent">
+```clarity
+(define-public (claim-rewards)
+  (let (
+    ;; fetch user's current balance. Guarantees sync with current state
+    (balance (unwrap-panic (contract-call? .credit-token get-balance contract-caller)))
+
+    ;; load or initialize user's reward snapshot
+    (info (default-to {
+      balance: u0,
+      block: u0,
+      debt-a: u0,
+      debt-b: u0,
+      index-a: u0,
+      index-b: u0}
+      (map-get? users { account: contract-caller })))
+
+    ;; read latest global reward indexes
+    (current-global-a (var-get global-index-a))
+    (current-global-b (var-get global-index-b))
+
+    ;; previously claimed amounts (debt) for each token
+    (debt-a (get debt-a info))
+    (debt-b (get debt-b info))
+    
+    ;; user's join-time index snapshots
+    (user-index-a (get index-a info))
+    (user-index-b (get index-b info))
+    
+    ;; total earned based on balance and index delta
+    (earned-a (/ (* balance (- current-global-a user-index-a)) PRECISION))
+    (earned-b (/ (* balance (- current-global-b user-index-b)) PRECISION))
+    
+    ;; claimable rewards = earned minus prior debt
+    (unclaimed-a (if (> earned-a debt-a) (- earned-a debt-a) u0))
+    (unclaimed-b (if (> earned-b debt-b) (- earned-b debt-b) u0))
+  )
+    ;; transfer claimable rewards and update reward tracking
+    (begin
+      (if (> unclaimed-a u0)
+        (try! (transformer .welshcorgicoin unclaimed-a contract-caller))
+        true
+      )
+      (if (> unclaimed-b u0)
+        (try! (transformer .street-token unclaimed-b contract-caller))
+        true
+      )
+      ;; bump global claimed totals
+      (var-set total-claimed-a (+ (var-get total-claimed-a) unclaimed-a))
+      (var-set total-claimed-b (+ (var-get total-claimed-b) unclaimed-b))
+      
+      ;; refresh user's snapshot with new debt and balance
+      (map-set users { account: contract-caller } {
+        balance: balance,
+        block: (get block info),
+        debt-a: (+ debt-a unclaimed-a),
+        debt-b: (+ debt-b unclaimed-b),
+        index-a: user-index-a,
+        index-b: user-index-b
+        })
+      
+      (ok {
+        amount-a: unclaimed-a,
+        amount-b: unclaimed-b,
+        })  
+    )
+  )
+)
+```
+</div>
+
+### Donate Rewards
+
+The `donate-rewards` function allows any caller to send additional WELSH or STREET into the rewards pool directly without changing a liquidity position. Donated amounts are immediately run through `update-rewards-a/b`, so donations increase the global indexes and become part of future distributions.
+
+<div className="code-transparent">
+```clarity
+(define-public (donate-rewards (amount-a uint) (amount-b uint))
+    (begin
+      
+      ;; optional WELSH donation
+      (if (> amount-a u0)
+      (begin
+
+        ;; transfer WELSH from caller into the street-rewards contract
+        (try! (contract-call? .welshcorgicoin transfer amount-a contract-caller .street-rewards none))
+
+        ;; as street-rewards, inject donated WELSH into the index via update-rewards-a
+        (try! (as-contract? ()
+          (try! (update-rewards-a amount-a))))
+      )
+        true
+      )
+      
+      ;; optional STREET donation
+      (if (> amount-b u0)
+      (begin
+
+        ;; transfer STREET from caller into the street-rewards contract
+        (try! (contract-call? .street-token transfer amount-b contract-caller .street-rewards none))
+
+        ;; as street-rewards, inject donated STREET into the index via update-rewards-b
+        (try! (as-contract? ()
+          (try! (update-rewards-b amount-b))))
+      )
+        true
+      )
+    (ok {
+      amount-a: amount-a,
+      amount-b: amount-b
+    })
+  )
+)
+```
+</div>
+
+## Update Accounting
+
+Every time a user calls a function that changes liquidity or rewards, the user's rewards accounting must be updated on chain.  The functions `decrease-rewards`, `increase-rewards` and `update-rewards-a/b` handle these accounting updates.  Technically these are public functions, but can only be called by specific contracts in the Welsh Street system.
+
+### Decrease Rewards
+
+The `decrease-rewards` function is called when a user’s CREDIT supply is reduced (for example when burning CREDIT). This occurs through `credit-controller.transfer` when the sender transfer away LP, `street-market.burn-liquidity` when a user burns LP tokens, and `street-market.remove-liquidity` when a user removes liquidity. The `contract-caller` must be `.credit-controller` or `.street-market`.
+
+It computes how much of the user’s unclaimed rewards must be forfeited, and redistributes that portion to the remaining LP base via the global index. 
+
+The function handles two cases where it either reinitializes the user’s snapshot for a partial reduction or, in the case of a full reduction, forfeits all remaining rewards and erases the user entry.
+
+<div className="code-transparent">
+```clarity
+(define-public (decrease-rewards (user principal) (amount uint))
+  (let (
+    ;; user's current CREDIT balance (AFTER amount was removed)
+    (balance (unwrap-panic (contract-call? .credit-token get-balance user)))
+
+    ;; snapshot timing stored into the user record
+    (block stacks-block-height)
+    
+    ;; current global reward indexes (cumulative rewards per LP token)
+    (global-a (var-get global-index-a))
+    (global-b (var-get global-index-b))
+    
+    ;; user's stored state (must exist - unwrap-panic will fail if not)
+    (info (unwrap-panic (map-get? users { account: user })))
+    
+    ;; total CREDIT supply across all holders
+    (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+    
+    ;; user's CREDIT balance before the reduction
+    (old-balance (+ balance amount))
+
+    ;; all LP held by OTHER users (excludes this user's full old-balance)
+    ;; note: total-lp is already post-decrease (reflects current on-chain supply)
+    ;; so (- total-lp old-balance) correctly gives everyone else's LP
+    (other-lp (- total-lp old-balance))
+  )
+    (begin
+      ;; only controller or market can shrink positions
+      (asserts! (or (is-eq contract-caller .credit-controller)
+                    (is-eq contract-caller .street-market)) ERR_NOT_AUTHORIZED)
+      
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      (let (
+
+        ;; debt offset used to prevent double-counting existing rewards
+        ;; (not the amount claimed - it's a calculated offset in the formula)
+        (debt-a (get debt-a info))
+        (debt-b (get debt-b info))
+        
+        ;; user's stored index snapshots (last time their state was updated)
+        (index-a (get index-a info))
+        (index-b (get index-b info))
+        
+        ;; compute earned: balance × (global-index - user-index) / PRECISION
+        ;; represents rewards accrued since user's last index snapshot
+        (earned-a (/ (* old-balance (- global-a index-a)) PRECISION))
+        (earned-b (/ (* old-balance (- global-b index-b)) PRECISION))
+        
+        ;; unclaimed rewards = earned minus prior debt
+        (unclaimed-a (if (> earned-a debt-a) (- earned-a debt-a) u0))
+        (unclaimed-b (if (> earned-b debt-b) (- earned-b debt-b) u0))
+        
+        ;; portion of unclaimed rewards that must be forfeited
+        ;; proportional to LP removed relative to old balance
+        (forfeit-a (/ (* unclaimed-a amount) old-balance))
+        (forfeit-b (/ (* unclaimed-b amount) old-balance))
+        
+        ;; convert forfeited rewards into index increments for other LPs
+        ;; forfeited rewards are immediately redistributed to remaining LP holders
+        ;; global index increases so remaining holders earn the forfeited portion
+        (redistributed-a (if (> other-lp u0)
+                      (/ (* forfeit-a PRECISION) other-lp)
+                      u0))
+        (redistributed-b (if (> other-lp u0)
+                      (/ (* forfeit-b PRECISION) other-lp)
+                      u0))
+      )
+        (begin
+          ;; bump global indexes by redistributed amounts
+          (if (> forfeit-a u0)
+            (begin
+              (var-set global-index-a (+ global-a redistributed-a)))
+            true)
+          (if (> forfeit-b u0)
+            (begin
+              (var-set global-index-b (+ global-b redistributed-b)))
+            true)
+          
+          (let (
+            ;; global indexes after applying forfeits
+            (new-global-a (var-get global-index-a))
+            (new-global-b (var-get global-index-b))
+            
+            ;; remainder of unclaimed rewards that stay with the user
+            (preserve-a (- unclaimed-a forfeit-a))
+            (preserve-b (- unclaimed-b forfeit-b))
+            
+            ;; derive new index that preserves remaining rewards on new balance
+            ;; adjusts user index backward so reward formula yields correct preserved amount
+            (preserve-idx-a (if (and (> balance u0) (> preserve-a u0))
+                        (- new-global-a (/ (* preserve-a PRECISION) balance))
+                        new-global-a))
+            (preserve-idx-b (if (and (> balance u0) (> preserve-b u0))
+                        (- new-global-b (/ (* preserve-b PRECISION) balance))
+                        new-global-b))
+          )
+            ;; BRANCH — partial removal (balance > 0):
+            ;; overwrite user record with recalculated preserve-idx and zeroed debt
+            (if (> balance u0)
+              (map-set users
+                { account: user }
+                { balance: balance,
+                  block: block,
+                  debt-a: u0,
+                  debt-b: u0, 
+                  index-a: preserve-idx-a,
+                  index-b: preserve-idx-b
+                })
+                
+              ;; BRANCH — total removal (balance = 0):
+              ;; delete user record — ALL unclaimed rewards
+              ;; were already forfeited and redistributed above
+              (map-delete users { account: user }))
+            )
+          (ok true)
+        )
+      )
+    )
+  )
+)
+```
+</div>
+
+
+### Increase Rewards
+
+The `increase-rewards` function is called whenever a user's CREDIT balance increases. This occurs through `credit-controller.transfer` when a recipient receives LP, `street-market.provide-liquidity` when a user adds liquidity, and `street-market.initial-liquidity` when the deployer initializes the pool. The `contract-caller` must be `.credit-controller` or `.street-market`.
+
+If a user had no prior rewards snapshot, `increase-rewards` initializes a fresh entry with their current CREDIT balance, zero debt, and index snapshots equal to the current global indexes.
+
+<div className="code-transparent">
+```clarity
+(define-public (increase-rewards (user principal) (amount uint))
+  (let (
+    
+    ;; user's new CREDIT balance after increase
+    (balance (unwrap-panic (contract-call? .credit-token get-balance user)))
+
+    ;; snapshot timing stored into the user record
+    (block stacks-block-height)
+    
+    ;; snapshot current global reward indexes for both tokens
+    (global-a (var-get global-index-a))
+    (global-b (var-get global-index-b))
+    
+    ;; existing user info if present
+    ;; no error check because user state may not exist (receive transfer)
+    (info (map-get? users { account: user }))
+    
+    ;; previous balance before increase
+    (old-balance (- balance amount))
+  )
+    (begin
+      ;; only credit-controller (transfers) or 
+      ;; street-market (provide-liquidity) can increase positions
+      (asserts! (or (is-eq contract-caller .credit-controller)
+                    (is-eq contract-caller .street-market)) ERR_NOT_AUTHORIZED)
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      
+      ;; if user already has a rewards snapshot, preserve existing unclaimed
+      ;; using index adjustment (preserve-idx) — same pattern as decrease-rewards
+      (if (is-some info)
+        (let (
+          
+          ;; unwrap stored user record
+          (data (unwrap-panic info))
+          
+          ;; debt offset used to prevent double-counting existing rewards
+          ;; (not the amount claimed - it's a calculated offset in the formula)
+          (debt-a (get debt-a data))
+          (debt-b (get debt-b data))
+          
+          ;; user's stored index snapshots (last time their state was updated)
+          (index-a (get index-a data))
+          (index-b (get index-b data))
+          
+          ;; compute earned: old-balance × (global-index - user-index) / PRECISION
+          ;; represents rewards accrued on old balance since user's last index snapshot
+          (earned-a (/ (* old-balance (- global-a index-a)) PRECISION))
+          (earned-b (/ (* old-balance (- global-b index-b)) PRECISION))
+          
+          ;; Compare what user should have earned (earned-*) to what they already took (debt-*).
+          ;; If earned > debt → unclaimed = difference.
+          ;; If earned ≤ debt → unclaimed = 0 (no negative unclaimed).
+          (unclaimed-a (if (> earned-a debt-a) (- earned-a debt-a) u0))
+          (unclaimed-b (if (> earned-b debt-b) (- earned-b debt-b) u0))
+          
+          ;; BRANCH — Existing user (index adjustment):
+          ;; preserve unclaimed rewards by adjusting user index backward, zeroing debt
+          ;; adjusted index ensures reward formula yields same unclaimed amount on new balance
+          (preserve-idx-a (if (> unclaimed-a u0)
+                            (- global-a (/ (* unclaimed-a PRECISION) balance))
+                            global-a))
+          (preserve-idx-b (if (> unclaimed-b u0)
+                            (- global-b (/ (* unclaimed-b PRECISION) balance))
+                            global-b))
+        )
+          ;; reset debt to zero and set user index to calculated preserve-idx
+          (map-set users { account: user } {
+            balance: balance,
+            block: block,
+            debt-a: u0,
+            debt-b: u0,
+            index-a: preserve-idx-a,
+            index-b: preserve-idx-b
+          })
+        )
+
+        ;; BRANCH — New user (info is none):
+        ;; initialize snapshot at current global indexes with zero debt
+        ;; no prior rewards to preserve
+        (map-set users { account: user } {
+          balance: balance,
+          block: block,
+          debt-a: u0,
+          debt-b: u0,
+          index-a: global-a,
+          index-b: global-b
+        })
+      )
+      (ok true)
+    )
+  )
+)
+```
+</div>
+
+### Update Rewards 
+
+The `update-rewards-a` and `update-rewards-b` functions are the core entry points for adding new WELSH and STREET into the index system. They adjust the global indexes based on the total CREDIT supply so that every unit of CREDIT accrues its proportional share of the newly added rewards.
+
+The update rewards functions technically are public, however they can only be called by the Welsh Street Exchange contracts.
+
+<div className="code-transparent">
+```clarity
+;; add WELSH rewards into the index for token-a
+(define-public (update-rewards-a (amount uint))
+  (let (
+      
+      ;; total current CREDIT supply used to split rewards pro‑rata
+      (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+      
+      ;; current global index for token-a before adding this amount
+      (current-index (var-get global-index-a))
+      
+      ;; index increment = amount / total CREDIT (scaled by PRECISION)
+      (index-increment (if (> total-lp u0)
+        (/ (* amount PRECISION) total-lp)
+        u0))
+      
+      ;; updated global index for token-a after this reward injection
+      (new-index (+ current-index index-increment))
+      
+      ;; updated on-chain accounting total of all WELSH ever distributed
+      (new-rewards (+ (var-get total-distributed-a) amount))
+    )
+    (begin
+      ;; only authorized contracts can inject rewards for A
+      (asserts! (or (is-eq contract-caller .street-controller)
+                    (is-eq contract-caller .street-market)
+                    (is-eq contract-caller .street-rewards)) ERR_NOT_AUTHORIZED)
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      
+      ;; persist the new global index for token-a
+      (var-set global-index-a new-index)
+      
+      ;; bump total-distributed-a to reflect the newly added WELSH
+      (var-set total-distributed-a new-rewards)
+      
+      (ok true)
+    )
+  )
+)
+
+;; add STREET rewards into the index for token-b
+(define-public (update-rewards-b (amount uint))
+  (let (
+
+      ;; total current CREDIT supply used to split rewards pro‑rata
+      (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+      
+      ;; current global index for token-b before adding this amount
+      (current-index (var-get global-index-b))
+      
+      ;; index increment = amount / total CREDIT (scaled by PRECISION)
+      (index-increment (if (> total-lp u0)
+        (/ (* amount PRECISION) total-lp)
+        u0))
+      
+      ;; updated global index for token-b after this reward injection
+      (new-index (+ current-index index-increment))
+      
+      ;; updated on-chain accounting total of all STREET ever distributed
+      (new-rewards (+ (var-get total-distributed-b) amount))
+    )
+    (begin
+      ;; only authorized contracts can inject rewards for B
+      (asserts! (or (is-eq contract-caller .street-market)
+                    (is-eq contract-caller .street-rewards)
+                    (is-eq contract-caller .emission-controller)) ERR_NOT_AUTHORIZED)
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      
+      ;; persist the new global index for token-b
+      (var-set global-index-b new-index)
+      
+      ;; bump total-distributed-b to reflect the newly added STREET
+      (var-set total-distributed-b new-rewards)
+      
+      (ok true)
+    )
+  )
+)
+```
+</div>
+
+## Clean Accounting
+
+Overtime rounding errors may accumulate in the `street-rewards` contract due to small rounding issues related to small reward amounts and small discrepancies between the index and debt adjustments during user liquidity changes. The Clean Accounting system allows user to periodically call the `cleanup-rewards` to redistribute these accumulate rounding errors back to LP providers to claim as rewards.
+
+### Cleanup Rewards
+
+The `cleanup-rewards` function reconciles the on-chain balances held by `street-rewards` with the accounting variables that track how much has been distributed and claimed. It identifies any excess or dust amounts and routes them back through the index system so they are reflected in future distribution.
+
+The function can also be used to salvage WELSH or STREET tokens accidentally sent to the `street-rewards` contract however other token types are not recoverable as there is no admin or developer access to the reward contract funds.
+
+The `cleanup-rewards` function is public and may be called by any user, but is restricted to once every 144 Bitcoin blocks (approximately 24 hours).
+
+<div className="code-transparent">
+```clarity
+(define-public (cleanup-rewards)
+  (let (
+    ;; compute true pool balances vs. accounting state
+    (cleanup-data (unwrap! (calculate-cleanup-rewards) ERR_CLEANUP_DATA))
+    (cleanup-a (get cleanup-a cleanup-data))
+    (cleanup-b (get cleanup-b cleanup-data))
+    (last-cleanup (var-get last-cleanup-block))
+  )
+    (begin
+      ;; enforce minimum interval between cleanup calls
+      (asserts! (>= burn-block-height (+ last-cleanup CLEANUP_INTERVAL)) 
+        ERR_CLEANUP_INTERVAL)
+
+      ;; if there is extra WELSH, fold it back into rewards
+      (if (> cleanup-a u0)
+        (try! (as-contract? ()
+          (try! (update-rewards-a cleanup-a))))
+        true)
+      
+      ;; if there is extra STREET, fold it back into rewards
+      (if (> cleanup-b u0)
+        (try! (as-contract? ()
+          (try! (update-rewards-b cleanup-b))))
+        true)
+      
+      ;; record block height of this cleanup
+      (var-set last-cleanup-block burn-block-height)
+      
+      (ok {
+        amount-a: cleanup-a,
+        amount-b: cleanup-b,
+      })
+    )
+  )
+)
+```
+</div>
+
+### Calculate Cleanup Rewards
+
+The `calculate-cleanup-rewards` function is an internal helper used only by `cleanup-rewards`. It compares the actual WELSH and STREET balances held by `street-rewards` to the amounts implied by `total-distributed-a/b` and `total-claimed-a/b` then computes any excess or sub‑threshold "dust" for each token. Any dust detected is swept back into the global indexes so these values can be claimed by LP holders.
+
+<div className="code-transparent">
+```clarity
+(define-private (calculate-cleanup-rewards)
+  (let (
+
+    ;; token balances held by the street-rewards contract
+    (actual-a (unwrap! (contract-call? .welshcorgicoin get-balance .street-rewards) ERR_BALANCE))
+    (actual-b (unwrap! (contract-call? .street-token get-balance .street-rewards) ERR_BALANCE))
+    
+    ;; totals already claimed by users for each token
+    (claimed-a (var-get total-claimed-a))
+    (claimed-b (var-get total-claimed-b))
+    
+    ;; totals of all rewards added for each token (all sources)
+    (distributed-a (var-get total-distributed-a))
+    (distributed-b (var-get total-distributed-b))
+    
+    ;; cutoff below which tiny outstanding amounts are treated as dust
+    ;; dust-threshold is an absolute amount in token units (0.01)
+    (dust-threshold u10000)
+    
+    ;; amounts that accounting expects to still be in the pool
+    (outstanding-a (- distributed-a claimed-a))
+    (outstanding-b (- distributed-b claimed-b))
+    
+    ;; rewards to sweep back into the index math
+    (cleanup-a (if (> actual-a outstanding-a)
+                  (- actual-a outstanding-a)
+                  (if (and (is-eq actual-a outstanding-a)
+                          (< outstanding-a dust-threshold))
+                      actual-a
+                      u0)))
+    (cleanup-b (if (> actual-b outstanding-b)
+                  (- actual-b outstanding-b)
+                  (if (and (is-eq actual-b outstanding-b)
+                          (< outstanding-b dust-threshold))
+                      actual-b
+                      u0)))
+  )
+    (ok {
+      actual-a: actual-a,
+      actual-b: actual-b,
+      claimed-a: claimed-a,
+      claimed-b: claimed-b,
+      cleanup-a: cleanup-a,
+      cleanup-b: cleanup-b,
+      distributed-a: distributed-a,
+      distributed-b: distributed-b,
+      outstanding-a: outstanding-a,
+      outstanding-b: outstanding-b
+    })
+  )
+)
+```
+</div>
+
+## Welsh Street vs Traditional AMMs
+
+This section compares traditional AMM reward mechanisms to the Welsh Street zero debt cumulative model. Traditional designs often require withdrawing liquidity which can realize impermanent loss on exit. Other designs add staking or time‑locks to the contracts which add complexity. Welsh Street separates claiming from withdrawal by using a single global index per token. This keeps accounting simple so participants can claim more frequently while maintaining continuous market exposure.
+
+### Traditional DeFi AMMs
+
+The traditional DeFi AMM structure discourages optimal behavior. Traditional AMM reward systems generally require users to withdraw liquidity in order to claim distributions. LP tokens must be burned, positions are interrupted, and the usual withdraw → claim → re‑deposit flow adds gas cost and timing risk. Users typically claim infrequently because costs and friction are high. 
+
+In many designs, accessing distributions by withdrawing liquidity and realizing impermanent loss are effectively the same action. Impermanent loss is realized at the moment of liquidity removal instead of remaining a potentially reversible condition.
+
+To work around these issues, some protocols add complex reward schemes such as staking and time‑locks. These rely on time‑based calculations that are expensive on‑chain These system add variables, time-lock and expand the implementation surface which can make these contracts difficult to test and audit. The net effect is higher gas, more parameters to track, and additional complexity that increases security risks.
+
+### Welsh Street Rewards
+
+The Welsh Street design is built to support optimal user behavior. Rewards can be claimed without withdrawing liquidity, so participants can claim distributions and maintain their position.
+
+Because claims are separate from withdrawals, participants can harvest distributions frequently at low gas cost while keeping liquidity active and maintaining market exposure. Impermanent loss can remain unrealized until conditions are favorable, instead of being realized to claim rewards. There are also no lock-ups, time-locks or staking contracts so users can claim anytime they have claimable rewards.
+
+Under the hood, the rewards system is engineered for efficiency and clarity. The single global index per token keeps gas usage low and join‑time snapshots keep distributions proportional to each participant’s contribution period. The cumulative index structure is deliberately simple so accounting remains transparent, auditable, and 100% onchain.
+
+### Comparison Table
+
+<table className="summary-table pros-cons">
+  <thead>
+    <tr>
+      <th className="neutral">Aspect</th>
+      <th className="pros">Welsh Street</th>
+      <th className="cons">Traditional DeFi AMMs</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td className="neutral">Gas Costs</td>
+      <td className="pros">Low (high-precision math)</td>
+      <td className="cons">High (time-based calculations)</td>
+    </tr>
+    <tr>
+      <td className="neutral">Gas Efficiency</td>
+      <td className="pros">Single claim transaction</td>
+      <td className="cons">Three or more transactions per full workflow</td>
+    </tr>
+    <tr>
+      <td className="neutral">User Experience</td>
+      <td className="pros">Clear, immediate participation</td>
+      <td className="cons">Penalties and locks hard to predict</td>
+    </tr>
+    <tr>
+      <td className="neutral">Claim Without Withdrawal</td>
+      <td className="pros">Keep LP position active</td>
+      <td className="cons">Must burn LP tokens to claim</td>
+    </tr>
+    <tr>
+      <td className="neutral">Market Exposure</td>
+      <td className="pros">No position interruption during claims</td>
+      <td className="cons">Lose exposure while claims are processed</td>
+    </tr>
+    <tr>
+      <td className="neutral">Impermanent Loss Handling</td>
+      <td className="pros">Keep IL unrealized until withdrawal</td>
+      <td className="cons">Forced IL realization to access rewards</td>
+    </tr>
+    <tr>
+      <td className="neutral">Compounding Workflow</td>
+      <td className="pros">Easy, frequent claims</td>
+      <td className="cons">Expensive and cumbersome to compound</td>
+    </tr>
+    <tr>
+      <td className="neutral">Security</td>
+      <td className="pros">Cumulative math is straightforward and provable</td>
+      <td className="cons">Extra complexity increases risk</td>
+    </tr>
+    <tr>
+      <td className="neutral">Maintenance</td>
+      <td className="pros">Simple, index-based accounting</td>
+      <td className="cons">Complex edge cases and evolving rules</td>
+    </tr>
+    <tr>
+      <td className="neutral">Time Lockups</td>
+      <td className="pros">None required by design</td>
+      <td className="cons">Commonly rely on lock mechanics</td>
+    </tr>
+    <tr>
+      <td className="neutral">Time-Weighted Rewards</td>
+      <td className="pros">Participation-period aware</td>
+      <td className="cons">Frequently exploitable</td>
+    </tr>
+  </tbody>
+</table>
+
+## Contract Interaction
+
+The Welsh Street rewards system was kept simple for the reasons mentioned above (gas efficiency, reduce attack surface, reduce complexity, etc.), but this doesn't mean there are not trade-offs.  The user's block position is reset every time they perform a liquidity operation (provide/remove/lock/burn/transfer).  This enhances security and prevents manipulation of the rewards system by maintain accurate accounting on every liquidity related transaction.
+
+The decrease/increase/update rewards functions are designed to update the user's rewards position to prevent rewards losses during transactions that change a user's liquidity positions. However, not all transactions can be guarded against reward loss. There are circumstances where users may lose rewards if a liquidity position is changed before claiming.
+
+<Callout type="warning">If the user changes their LP position before claiming rewards, in some circumstances rewards can be lost forever.</Callout>
+
+To offer the best UX possible and prevent users from losing their claim to rewards, the Welsh Street Exchange has implemented safety checks so users cannot change their liquidity position using the frontend without being reminded to claim rewards. However, interacting with the contracts directly, for example using the Stacks explorer or CLI, these protections do not exist.
+
+This isn't manipulation or off-chain shenanigans affecting on-chain accounting! The Welsh Street frontend simply checks the user's balance and changes the state of the liquidity function buttons to notify users that they have rewards.
+
+## Transfer Rewards
+
+Due to the mathematical nature of the zero debt cumulative distribution system and global index accounting, it is not possible to transfer unclaimed rewards directly from user to user.  This type of transfer would require individual accounts for each user onchain and it is not practical.
+
+Any contract, frontend, or application that promises unclaimed rewards between users is fraudulent and most likely a scam. The correct way to transfer unclaimed rewards to another user is to first claim those rewards, then perform a normal token transfer using a preferred and secure wallet.

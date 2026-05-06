@@ -1,0 +1,118 @@
+# Credit Token
+
+CREDIT is the liquidity provider (LP) token of Welsh Street Exchange. CREDIT implements the SIP-010 fungible token standard and represents proportional ownership in the WELSH/STREET liquidity pool.
+
+Unlike most DEXs that use internal accounting or NFT positions, Welsh Street issues tradable LP tokens. CREDIT tokens are fully transferable, enabling secondary markets and DeFi composability.
+
+## Core Functions
+
+### Burn
+<div className="code-transparent">
+```clarity
+(define-public (burn (amount uint))
+    (begin
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+      ;; Only street-market authorization for liquidity operations
+      (asserts! (is-eq contract-caller .street-market) ERR_NOT_AUTHORIZED)
+      (try! (ft-burn? credit amount tx-sender))
+      (ok {
+        amount: amount
+      })
+    )
+)
+```
+</div>
+
+### Mint
+<div className="code-transparent">
+```clarity
+(define-public (mint (amount uint))
+    (begin
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+      ;; Only street-market authorization for liquidity operations
+      (asserts! (is-eq contract-caller .street-market) ERR_NOT_AUTHORIZED)
+      (try! (ft-mint? credit amount tx-sender))
+      (ok {
+        amount: amount
+      })
+    )
+)
+
+```
+</div>
+
+### Transfer
+
+<div className="code-transparent">
+```clarity
+(define-public (transfer
+    (amount uint)
+    (sender principal)
+    (recipient principal)
+    (memo (optional (buff 34)))
+  )
+  (begin
+    (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+    ;; street-market authorization for liquidity operations
+    (asserts! (or (is-eq contract-caller .street-market)
+
+    ;; credit-market authorization for distribution tracking during transfers 
+                  (is-eq contract-caller .credit-controller)) ERR_NOT_AUTHORIZED)
+    (try! (ft-transfer? credit amount sender recipient))
+    (match memo content (print content) 0x)
+    (ok true)
+  )
+)
+```
+</div>
+
+## Credit Transfer
+
+In the Meme Rewards Protocol, the CREDIT token is mathematically tied to the rewards accounting system.  Therefore ever transfer of the CREDIT token must update the rewards tracking for the sender and the recipient. 
+
+Therefore, authorizations are placed on the `transfer` function which makes normal in-wallet transfers fail.  In order to transfer CREDIT tokens from wallet to wallet, or address to address, user's must utilize the [credit controller](/docs/core/controllers#credit-controller) function or the UI found on [Welsh Street](https://app.welshstreet.com/transfer).
+
+## Liquidity Token Models
+
+### Tradable LP Tokens
+
+```
+WELSH + STREET → [Pool Contract] → CREDIT Token (SIP-010)
+                                         ↓
+                                  Tradable Asset
+```
+
+**Advantages**:
+- Secondary markets for LP positions
+- DeFi composability with other protocols
+- Collateral usage while receiving fees
+- Transparent ownership representation
+
+### Internal Accounting
+
+```
+Multiple Tokens → [Pool Contract]
+                         ↓
+                  Internal Balances
+```
+
+**Limitations**:
+- No LP position trading
+- Limited protocol composability
+- Must exit to realize value
+
+### Supply Mechanics
+
+CREDIT supply is dynamic — minted when users provide liquidity, burned when users remove liquidity. Only the `street-market.clar` contract can mint or burn CREDIT tokens via contract-caller authorization.
+
+## Token Metadata
+
+- **Standard**: SIP-010 Fungible Token
+- **Decimals**: 6
+- **Symbol**: CREDIT
+- **Supply**: Dynamic (minted/burned with liquidity operations)
+- **Mint Authority**: `street-market.clar` only (contract-caller authorization)
+- **Contract Link**: [credit-token](https://explorer.hiro.so/token/SP2A7PT3DMWVT2BHHMKQ2T0Y4AA05NST96SDM2FCE.credit-token?chain=mainnet)

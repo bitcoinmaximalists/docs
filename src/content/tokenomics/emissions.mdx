@@ -1,0 +1,238 @@
+import { Callout } from 'nextra/components'
+
+# Emissions
+
+This section covers the on-chain execution mechanics: how Bitcoin blocks pace rewards in the `emission-controller` contract and what external triggers are used to call mint events.
+
+## Emission Model
+
+After selecting a fixed-emission model as described in [issuance](issuance), Welsh Street  designed a specific emission schedule. Two key parameters needed to be set: the emission amount per event, and the emission interval. Each choice was made independently based on technical constraints and cultural references.
+
+### Reference Supply
+
+The starting point was WELSH itself. WELSH launched with a total supply of 10 billion tokens — a fully distributed, fixed-supply community meme coin with no ongoing issuance. 
+
+For STREET the supply cap is perpetual. However, for various practical engineering and economic calculations, that 10 billion baseline provides a logic reference.
+
+### Emission Amount
+
+With a baseline reference supply established, the next question was how many tokens to emit per event. The answer came from researching existing fixed-emission blockchains.
+
+The most prominent example — and one of the most successful by market capitalization and duration in the industry — is Dogecoin. After an early period of declining block rewards, Dogecoin settled into a constant block subsidy of 10,000 DOGE per block. That became tail emissions: permanent fixed issuance that does not change over time.
+
+The fact that Dogecoin is a fellow dog meme coin, the most successful meme coin in history and has fixed-emission tokenomics is either pure coincidence or divine intervention on behalf of the crypto gods.
+
+![Welsh Corgi levitating like a god](/made-it-up-lb.png)
+
+Dogecoin started with a declining block-subsidy schedule, but once it reached its final reward epoch it switched to permanent fixed issuance: 10,000 DOGE per block. Because Dogecoin targets ~1-minute blocks, that becomes ~10,000 DOGE per minute. In Dogecoin Core, this is implemented as constant inflation after the last halving-era threshold.
+
+The code excerpt below is from [Dogecoin Core](https://github.com/dogecoin/dogecoin/blob/c137058c55eb2ec96e2938048134586376d13e34/src/dogecoin.cpp#L126) `dogecoin.app` lines 127 to 149. This code defaults the block subsidy to 10,000 DOGE per block as tail emissions at the end of the halving cycles.
+
+<div className="code-transparent">
+```cpp
+// dogecoin.cpp
+
+CAmount GetDogecoinBlockSubsidy(...) // ... [redacted]
+{
+    int halvings = nHeight / consensusParams.nSubsidyHalvingInterval;
+
+    if (!consensusParams.fSimplifiedRewards)
+    {
+        // Old-style rewards derived from the previous block hash
+        // ... [redacted]
+        return (1 + rand) * COIN;
+    } else if (nHeight < (6 * consensusParams.nSubsidyHalvingInterval)) {
+        
+        // New-style constant rewards for each halving interval
+        return (500000 * COIN) >> halvings;
+    } else {
+        
+        // Constant inflation
+        return 10000 * COIN;
+    }
+}
+```
+</div>
+
+Dogecoin became a fixed-emission, disinflationary token in February 2014, approximately two months after its launch in December 2013. 
+
+<Callout type="info" emoji="">
+  <div style={{ textAlign: 'center' }}>STREET's emission amount was selected to be 10,000 tokens per epoch.</div>
+</Callout>
+
+### Emission Interval
+
+The final parameter was timing and how frequently should emissions occur.
+
+Stacks is built on Bitcoin. WELSH is a token on Stacks. By proxy, STREET has access to Bitcoin state through Clarity smart contracts. The Stacks blockchain can read Bitcoin block height via `burn-block-height`, which makes Bitcoin blocks a natural pacing for emissions.
+
+Bitcoin targets a 10-minute block interval. In the Bitcoin [source code](https://github.com/bitcoin/bitcoin/blob/master/src/chainparams.cpp), the parameters that define this target are found in `chainparams`:
+
+```cpp
+// chainparams.cpp
+
+consensus.nPowTargetSpacing = 10 * 60; // 10 minutes
+
+consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+```
+
+Stacks has access to Bitcoin's block height via the `burn-block-height` function in Clarity smart contracts. This makes Bitcoin blocks a natural pacing signal for emissions. The emission interval targets one epoch per Bitcoin block, approximately every 10 minutes.
+
+### Emission Model
+
+The initial STREET supply would be 5 billion STREET, distributed during the initial mint and Genesis NFT event as described in [distribution](distribution). 
+
+By combining the DOGE-inspired amount and Bitcoin-inspired interval, the Emission Model yielded fascinating results:
+
+- **Supply reaches 10B** at epoch 500,000, which occurs in cycle 9.52 — approximately 10 years
+- **Initial inflation rate** at epoch 1 calculates to 10.50% — approximately 10%
+
+The pattern wasn't designed. It emerged from the model. The amount and interval parameters were chosen independently for there own reasons, but when the numbers were plugged into the algorithms, the pattern of 10s appeared naturally.
+
+For those trained in the arts of tokenomics and who have spent time in the industry, this emission schedule just works.
+
+### Emission Metadata
+
+The data table below summarizes the emission and inflation parameters over the hypothetical life cycle for STREET supply to reach parity with WELSH:
+
+| Parameter | Value |
+|-----------|-------|
+| Model | Fixed Emission Rate |
+| Total cycles | *10* |
+| Epochs per year | 52,500 |
+| Total epochs | 525,000 |
+| Fixed emission amount (per epoch) | *10,000* |
+| Fixed emission amount (per cycle) | 525,000,000 |
+| Initial supply | 5,000,000,000 |
+| Total emissions | 5,250,000,000 |
+| Final total supply | 10,250,000,000 |
+| Total growth factor | 2.05x |
+| Effective annual inflation rate | 7.44% |
+| Average inflation rate | 7.45% |
+| Final inflation rate | 5.40% |
+| Initial inflation rate (epoch 1) | *10.50%* |
+| Inflation rate reaches 10% | Epoch 25,000 (cycle 0.48) |
+| Supply reaches *10B* | Epoch 500,000 (cycle *9.52*) |
+
+## Emission Trigger
+
+### Community Minting
+
+The `mint` function in the `emission-controller` contract is completely permissionless and public. Any participant can call it at any time. There are no privileged addresses, no administrator control, and no centralized entity required to trigger emissions.
+
+This design makes STREET a truly community-minted token. Emissions occur when community members interact with the protocol, not when developers or administrators decide to release tokens.
+
+Because the mint function is public and permissionless, emissions occur only when community members choose to call it. If no one calls the function during a particular Bitcoin block, no emission occurs for that block.
+
+This creates organic pacing: emissions happen when the community is active and engaged with the protocol. There is no guaranteed emission schedule independent of community participation.
+
+### Sybil Protection
+
+To help reduce spam and prevent sybil attacks, the mint function requires the caller to hold a minimum CREDIT balance of 0.1% of the total CREDIT supply. This helps insure the caller has participated in liquidity provision and limits the mint calls to active protocol participants
+
+This requirement creates a permissionless but spam-resistant system. Anyone can participate, but they must first interact with the protocol by providing liquidity.
+
+### Immutable Parameters
+
+The emission mechanics are hardcoded into the `emission-controller` contract. The deployer has no administrative functions to alter emission behavior. The contract executes autonomously based on its immutable code.
+
+#### Fixed-Emission Rate
+
+The `AMOUNT` constant enforces a fixed-amount of 10,000 STREET per epoch. This value is hardcoded and has no functions to modify its value.
+
+<div className="code-transparent">
+```clarity
+(define-constant AMOUNT u10000000000)
+```
+</div>
+
+#### Rate Limiting
+
+The `ERR_EMISSION_INTERVAL` assertion enforces one emission per Bitcoin block. This prevents multiple emissions within a single Bitcoin block and ensures emissions pace at Bitcoin's ~10-minute interval. The deployer cannot modify this rate limit.
+
+<div className="code-transparent">
+```clarity
+(asserts! (>= blocks-elapsed u1) ERR_EMISSION_INTERVAL)
+```
+</div>
+
+#### Eligibility criteria
+
+A `THRESHOLD` is et that the caller must have 0.1% of the total CREDIT supply to insure previous community participation.
+
+<div className="code-transparent">
+```clarity
+(define-constant THRESHOLD u1000)
+;; ...
+(asserts! (>= caller-credit min-credit) ERR_NOT_ELIGIBLE)
+```
+</div>
+
+## Technical Specifications
+
+### Emission Controller Contract
+
+The full `emission-controller` contract that implements the public, permissionless `mint` function is presented below.
+
+<div className="code-transparent">
+```clarity
+;; Welsh Street Emission Controller
+
+;; constants
+
+;; immutable 10,000 DOGE-inspired STREET amount
+(define-constant AMOUNT u10000000000)
+
+;; eligibility criteria of 0.1% or 1/1000 of supply
+(define-constant THRESHOLD u1000)
+
+;; variables
+(define-data-var current-epoch uint u0)
+(define-data-var last-burn-block uint u0)
+
+(define-public (mint)
+  (let (
+      (last-mint (var-get last-burn-block))
+      (blocks-elapsed (- burn-block-height last-mint))
+      (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+      
+      ;; calculate caller's CREDIT
+      (caller-credit (unwrap-panic (contract-call? .credit-token get-balance tx-sender)))
+      (min-credit (/ total-lp THRESHOLD))
+    )
+    (begin
+      ;; Rate limit: one emission per Bitcoin block
+      (asserts! (not (is-eq burn-block-height last-mint)) ERR_EMISSION_INTERVAL)
+      
+      ;; Sybil protection: require minimum CREDIT balance
+      (asserts! (>= caller-credit min-credit) ERR_NOT_ELIGIBLE)
+      
+      ;; Mint reward to pool
+      (try! (contract-call? .street-token mint AMOUNT .street-rewards))
+      
+      ;; Update rewards pool
+      (try! (contract-call? .street-rewards update-rewards-b AMOUNT))
+      
+      ;; Update state
+      (var-set current-epoch (+ (var-get current-epoch) u1))
+      (var-set last-burn-block burn-block-height)
+      
+      (ok {
+        amount: AMOUNT,
+        block: burn-block-height,
+        epoch: (var-get current-epoch),
+      })
+    )
+  )
+)
+```
+</div>
+
+## TL;DR
+
+- **Public function**: Any address can call `mint`
+- **No admin control**: No privileged addresses or owner functions
+- **Fixed amounts**: Emission amount is a hardcoded constants
+- **Rate limited**: Maximum one emission per Bitcoin block
+- **Sybil resistant**: Requires minimum CREDIT balance (0.1% of supply or 10 CREDIT)
+- **Autonomous execution**: Contract operates independently of developer actions

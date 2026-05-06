@@ -1,0 +1,239 @@
+# Distribution
+
+The STREET distribution model is 100% dedicated and designed to favor the community and keep the Welsh Street market active. There is no treasury or treasury allocation.  There is no initial developer allocation.  There are no investors and no initial coin offering to insiders.
+
+The entire allocation is directed to liquidity and community-oriented distribution.
+
+## Breakdown
+
+The distribution model deploys 5,000,000,000 STREET including 2,000,000,000 to the initial liquidity pool and the 3,000,000,000 to the initial community allocation via the Genesis NFT event.
+
+The objective is to keep incentives and participation aligned with the system’s purpose: Meme Rewards support WELSH and the Welsh Community.
+
+### Initial Distribution 
+
+**30%** of the reference supply is reserved for the Genesis NFT event. STREET is minted to users who donate 1,000 WELSH to the rewards pool and mint a commemorative NFT. This allocation is what initial distributes STREET tokens to the community.
+
+### Initial Liquidity 
+
+**20%** of the reference supply is minted on contract deployment to seed initial liquidity. The deployer pairs this STREET with WELSH to establish the initial liquidity pool. The WELSH is provided by the deployer with no investors or insiders.
+
+## Minting Functions
+
+The STREET token is minted from the `street-token` contract and distributed by the `street-nft` contract. The process is managed and controlled by the `street-controller` contract.
+
+### Street Token
+
+The main minting function is the `mint` function found in the STREET `street-token` contract.  This function mints STREET tokens and can only be called by the `street-controller` contract.
+
+<div className="code-transparent">
+```clarity
+;; Mint function can only be called by .emission-controller or .street-controller
+
+(define-public (mint (amount uint) (recipient principal))
+    (begin
+      (asserts!
+        (or
+          (is-eq contract-caller .emission-controller)
+          (is-eq contract-caller .street-controller)
+        )
+        ERR_NOT_AUTHORIZED
+      )
+      (try! (ft-mint? street amount recipient))
+      (ok true)
+    )
+)
+```
+</div>
+
+During the deployment of the `street-token` contract, 2,000,000,000 STREET tokens are automatically minted to the deployer for initial liquidity.  There is no cap or function related to this mint event.  It can only be called once at contract deployment, similar to the way all 10,000,000,000 WELSH tokens were created at deployment. 
+
+<div className="code-transparent">
+```clarity
+;; The Great Welsh $STREET TGE
+
+(begin
+  (try! (ft-mint? street u2000000000000000 (var-get contract-owner)))
+)
+```
+</div>
+
+### Street Controller
+
+The `street-controller` contract controls the minting of STREET, collection of WELSH donations from community members during the NFT mint, and updates the rewards pool every time a user donates WELSH and mints a Genesis NFT. 
+
+<div className="code-transparent">
+```clarity
+;; constants
+
+;; Milestone bonus: 1,000,000 STREET (with 6 decimals) awarded at every 21st mint
+(define-constant MINT_BONUS  u1000000000000)
+
+;; Standard mint: 100,000 STREET (with 6 decimals) awarded at positions 1-20 in each cycle
+(define-constant MINT_STREET  u100000000000)
+
+;; Required donation: 1,000 WELSH (with 6 decimals) to mint an NFT and receive STREET
+(define-constant DONATE_WELSH   u1000000000)
+
+;; Maximum supply: 21,000 total NFTs can be minted (1,000 cycles of 21 mints each)
+(define-constant MINT_CAP            u21000)
+
+;; variables
+(define-data-var mint-count uint u0)
+
+;; Track mints per user: maps user address to number of NFTs minted (max 2 per user)
+(define-map users principal uint)
+
+(define-public (mint)
+  (let (
+      ;; Get the user's current WELSH balance to verify they have enough to donate
+      (user-welsh (unwrap-panic (contract-call? .welshcorgicoin get-balance tx-sender)))
+      
+      ;; Increment the global mint count to determine this mint's position number
+      (count (+ (var-get mint-count) u1))
+      
+      ;; Check if this is a milestone mint (every 21st position gets bonus)
+      (is-milestone (is-eq (mod count u21) u0))
+      
+      ;; Determine STREET amount: 1M for milestone, 100K for standard
+      (mint-amount (if is-milestone MINT_BONUS MINT_STREET))
+    )
+    (begin
+      (asserts! (>= user-welsh DONATE_WELSH) ERR_YOU_POOR)
+      (asserts! (< (default-to u0 (map-get? users tx-sender)) u2) ERR_ALREADY_MINTED)
+      (asserts! (<= count MINT_CAP) ERR_MINT_CAP)
+      
+      ;; Mint STREET tokens to the user (either 100K or 1M depending on position)
+      (try! (contract-call? .street-token mint mint-amount tx-sender))
+      
+      ;; Mint the Genesis NFT with the current token ID to the user
+      (try! (contract-call? .street-nft mint count tx-sender))
+      
+      ;; Transfer 1,000 WELSH from the user to the rewards pool contract
+      (try! (contract-call? .welshcorgicoin transfer DONATE_WELSH tx-sender .street-rewards none))
+      
+      ;; Update the rewards pool accounting with the new WELSH donation
+      (try! (contract-call? .street-rewards update-rewards-a DONATE_WELSH))
+      
+      ;; Increment the user's mint count in the tracking map
+      (map-set users tx-sender (+ (default-to u0 (map-get? users tx-sender)) u1))
+      
+      ;; Update the global mint counter to reflect this mint
+      (var-set mint-count count)
+    )
+  )
+)
+```
+</div>
+
+### Street NFT
+
+The `street-nft` contract mints the NFTs for the Welsh Street Genesis NFT event
+
+<div className="code-transparent">
+```clarity
+
+;; Track NFT ownership: maps user address to a list of their token IDs (max 2 per user)
+(define-map users principal (list 2 uint))
+
+(define-public (mint (token-id uint) (recipient principal))
+  
+  ;; Get the user's existing NFT token IDs, or empty list if they have none
+  (let ((existing-tokens (default-to (list) (map-get? users recipient))))
+    (begin
+      (asserts! (is-eq contract-caller .street-controller) ERR_NOT_AUTHORIZED)
+      
+      ;; Mint the Genesis NFT with the specified token ID to the recipient
+      (try! (nft-mint? welsh-street-genesis-nft token-id recipient))
+      
+      ;; Add the new token ID to the user's list of owned NFTs (enforcing max 2)
+      (map-set users recipient (unwrap-panic (as-max-len? (append existing-tokens token-id) u2)))
+      
+      (ok true)
+    )
+  )
+)
+```
+</div>
+
+## Genesis NFT Event
+
+The Genesis NFT event distributes 3,000,000,000 STREET tokens (30% of reference supply) to community members through a public NFT mint. Each participant donates 1,000 WELSH to the rewards pool and receives a commemorative NFT paired with STREET tokens.
+
+### Distribution Structure
+
+The event uses a repeating cycle structure to distribute tokens:
+
+- **Total NFTs**: 21,000 mints available
+- **Cycle Length**: 21 mints per cycle
+- **Total Cycles**: 1,000 cycles
+- **WELSH Donated**: 21,000,000 total (1,000 per mint)
+
+Each cycle distributes 3,000,000 STREET:
+- **Positions 1-20**: 100,000 STREET per mint (standard distribution)
+- **Position 21**: 1,000,000 STREET per mint (milestone bonus)
+
+After each milestone mint at position 21, the cycle resets and begins again.
+
+### NFT Attributes
+
+Each NFT includes visual elements based on token type and a background theme based on the different utilities on the Welsh Street Exchange.
+
+#### Token Type
+
+The main attribute of the Genesis NFT is inspired by WELSH and the two new tokens STREET and CREDIT together creating the Meme Rewards Protocol.
+
+- 🟠 **WELSH**: 50% of standard mints (10,000 NFTs)
+- 🔵 **STREET**: 50% of standard mints (10,000 NFTs)
+- 🟣 **CREDIT**: All milestone mints (1,000 NFTs)
+
+#### Backgrounds
+
+The six backgrounds are inspired by the six main utility functions of the Meme Rewards protocol and the different utilities users may find on the Welsh Street Exchange.
+
+- 🟥 Legends
+- 🟦 Liquidity
+- 🟩 Mint
+- 🟪 Rewards
+- 🟧 Swap
+- ⬛ Transfer
+
+Each background appears exactly 3,500 times across the 21,000 NFT collection.
+
+### Rarity Table
+
+The Welsh Street Genesis NFT collection is designed to be commemorative, fun and a fair way to initially distribute STREET tokens to the community.  The collection does not focus on rarity but rather a balanced distribution.  The rarity table is shown below:
+
+| Token | Background | Count | Percentage |
+|-------|------------|:-----:|:----------:|
+| 🟠 WELSH | 🔴 Legends | 1,667 | 7.94% |
+| 🟠 WELSH | 🔵 Liquidity | 1,666 | 7.93% |
+| 🟠 WELSH | 🟢 Mint | 1,667 | 7.94% |
+| 🟠 WELSH | 🟣 Rewards | 1,667 | 7.94% |
+| 🟠 WELSH | 🟠 Swap | 1,666 | 7.93% |
+| 🟠 WELSH | ⚫ Transfer | 1,667 | 7.94% |
+| 🔵 STREET | 🔴 Legends | 1,666 | 7.93% |
+| 🔵 STREET | 🔵 Liquidity | 1,667 | 7.94% |
+| 🔵 STREET | 🟢 Mint | 1,666 | 7.93% |
+| 🔵 STREET | 🟣 Rewards | 1,667 | 7.94% |
+| 🔵 STREET | 🟠 Swap | 1,667 | 7.94% |
+| 🔵 STREET | ⚫ Transfer | 1,667 | 7.94% |
+| 🟣 CREDIT | 🔴 Legends | 167 | 0.80% |
+| 🟣 CREDIT | 🔵 Liquidity | 167 | 0.80% |
+| 🟣 CREDIT | 🟢 Mint | 167 | 0.80% |
+| 🟣 CREDIT | 🟣 Rewards | 166 | 0.79% |
+| 🟣 CREDIT | 🟠 Swap | 167 | 0.80% |
+| 🟣 CREDIT | ⚫ Transfer | 166 | 0.79% |
+
+### NFT Utility
+
+NFTs serve as commemorative tokens representing participation in the Genesis event. They do not confer:
+
+- Governance rights
+- Special access or privileges
+- Administrative control
+
+The NFT represents the STREET token distribution received during the genesis event.
+
+The protocol launches independently of mint completion. The exchange can function whether 10% or 100% of NFTs are minted, as initial liquidity is provided separately by the deployer. There is no pressure for full mint-out, allowing organic adoption and community participation over time.
+

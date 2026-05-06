@@ -1,0 +1,346 @@
+# Testing Coverage
+
+The Welsh Street Exchange employs a comprehensive testing framework that validates every contract function and error condition. The testing approach prioritizes complete coverage through dedicated test files for each function, systematic error validation, and chain state verification.
+
+## Testing Architecture
+
+The testing system utilizes a modular design with separate helper functions and test files:
+
+- **Test files** (`*.test.ts`): Contain test scenarios and expectations
+- **Helper functions** (`*-helper-functions.ts`): Handle contract interactions and validation logic
+- **Setup functions**: Establish complex contract states for testing scenarios
+
+## Validation Approach
+
+Each test validates actual blockchain state rather than reiterating expected values. Helper functions calculate expected outcomes and compare them against chain state, ensuring accurate bug detection. This methodology replaces legacy testing patterns that failed to detect state inconsistencies.
+
+The testing suite employs two distinct testing patterns:
+
+### Standard Tests
+
+Require manual calculation of all contract behavior to be against actual contract behavior. Expected values are computed independently and passed to helper functions for validation against chain state.
+
+### Debug Tests
+
+Identified by 'debug' in the test file name, these tests use direct contract calls to monitor contract behavior. Debug tests handle very complex contract interactions and monitor internal functions where direct function calls via helper functions are not possible.
+
+## Coverage Principles
+
+The testing achieves comprehensive coverage through three key principles. Every public function has a dedicated test suite that validates both successful execution and all associated error conditions. Each error code is independently tested to ensure proper validation logic and error handling. Tests run with fresh simnet state to prevent interference between test cases, ensuring accurate and reproducible results.
+
+## Coverage Report
+
+| Contract | Functions | Errors | Test Files | Functions | Errors |
+|----------|-----------|--------|------------|------------------|---------------|
+| credit-controller | 3 | 4 | 8 | 3/3 (100%) | 4/4 (100%) |
+| credit-token | 12 | 3 | 5 | 12/12 (100%) | 3/3 (100%) |
+| emission-controller | 5 | 4 | 4 | 5/5 (100%) | 4/4 (100%) |
+| street-controller | 4 | 5 | 5 | 4/4 (100%) | 5/5 (100%) |
+| street-market | 11 | 5 | 20 | 11/11 (100%) | 5/5 (100%) |
+| street-nft | 9 | 4 | 5 | 9/9 (100%) | 4/4 (100%) |
+| street-rewards | 14 | 4 | 12 | 14/14 (100%) | 4/4 (100%) |
+| street-token | 11 | 4 | 7 | 11/11 (100%) | 4/4 (100%) |
+| welsh-faucet | 10 | 2 | 5 | 10/10 (100%) | 2/2 (100%) |
+| **Total** | **79** | **35** | **85** | **79/79 (100%)** | **35/35 (100%)** |
+
+### credit-controller
+
+**Functions (3/3):**
+- `transfer` - Pass + all error conditions
+- `set-contract-owner` - Error condition
+- `get-contract-owner` - Read-only
+
+**Errors (4/4):**
+- ERR_ZERO_AMOUNT (u911)
+- ERR_NOT_CONTRACT_OWNER (u912)
+- ERR_NOT_TOKEN_OWNER (u913)
+- ERR_BALANCE (u914)
+
+**Test Files (8):**
+- credit-controller-pass
+- credit-controller-error (4 error cases)
+- credit-controller-read-only
+- credit-controller-set-contract-owner (pass + error)
+- credit-controller-loss-wallet1
+- credit-controller-loss-wallet1-and-wallet2
+- credit-controller-debug-1
+- credit-controller-debug-2
+
+### credit-token
+
+**Functions (12 total):**
+- `burn` (pass + errors)
+- `mint` (pass + errors)
+- `set-contract-owner` (pass + error)
+- `set-token-uri` (pass + error)
+- `transfer` (authorization guards tested via credit-controller and street-market tests)
+- `get-balance` (shared read-only tests)
+- `get-contract-owner` (shared tests)
+- `get-decimals` (shared tests)
+- `get-name` (shared tests)
+- `get-symbol` (shared tests)
+- `get-token-uri` (shared tests)
+- `get-total-supply` (shared tests)
+
+**Errors (3/3):**
+- ERR_ZERO_AMOUNT (u921)
+- ERR_NOT_CONTRACT_OWNER (u922)
+- ERR_NOT_AUTHORIZED (u923)
+
+**Test Files (5):**
+- credit-burn (3 tests)
+- credit-mint (3 tests)
+- credit-token-set-token-uri (2 tests)
+- credit-token-set-contract-owner (2 tests)
+- credit-token-read-only (7 tests)
+
+### emission-controller
+
+**Functions (5/5):**
+- `mint` - Pass + all error conditions
+- `set-contract-owner` (pass + error)
+- `get-contract-owner` - Read-only
+- `get-current-epoch` - Read-only
+- `get-last-burn-block` - Read-only
+
+**Errors (4/4):**
+- ERR_EMISSION_INTERVAL (u931)
+- ERR_NOT_CONTRACT_OWNER (u932)
+- ERR_NOT_ELIGIBLE (u933)
+- ERR_NO_LIQUIDITY (u934)
+
+**Test Files (4):**
+- emission-controller-pass
+- emission-controller-error (3 error cases)
+- emission-controller-read-only (2 read-only tests)
+- emission-controller-set-contract-owner (pass + error)
+
+### street-controller
+
+**Functions (4 total):**
+- `mint` (pass + all error conditions)
+- `set-contract-owner` (pass + error)
+- `get-contract-owner` (read-only)
+- `get-mint-count` (read-only)
+
+**Errors (5/5):**
+- ERR_ALREADY_MINTED (u941)
+- ERR_NOT_CONTRACT_OWNER (u942)
+- ERR_MINT_CAP (u943)
+- ERR_NO_LIQUIDITY (u944)
+- ERR_YOU_POOR (u2)
+
+**Test Files (5):**
+- street-controller-pass
+- street-controller-error (4 error cases)
+- street-controller-error-mint-cap
+- street-controller.read-only (2 read-only tests)
+- street-controller-set-contract-owner (pass + error)
+
+### street-market
+
+**Functions (11 total):**
+- `burn-liquidity` (pass + errors + donate scenarios)
+- `lock-liquidity` (pass + errors)
+- `initial-liquidity` (pass + errors + reinitialize)
+- `provide-liquidity` (pass + errors + preserve-rewards)
+- `remove-liquidity` (pass + errors + rewards debug)
+- `swap-a-b` (pass + errors + lock-adjustment)
+- `swap-b-a` (pass + errors)
+- `set-contract-owner` (pass + error)
+- `transformer` (private) indirectly
+- `get-blocks` (read-only)
+- `get-contract-owner` (shared tests)
+- `get-market-info` (read-only)
+
+**Errors (5/5):**
+- ERR_ZERO_AMOUNT (u951)
+- ERR_NOT_CONTRACT_OWNER (u952)
+- ERR_NOT_INITIALIZED (u953)
+- ERR_INITIALIZED (u954)
+- ERR_INVALID_AMOUNT (u955)
+
+**Test Files (25):**
+- **Burn Liquidity (5):** deployer-pass, wallet1-pass, err-zero-amount, donate-rewards, claim-rewards-debug
+- **Initial Liquidity (3):** pass, errors, reinitialize
+- **Lock Liquidity (2):** pass, errors
+- **Provide Liquidity (3):** pass, errors, preserve-rewards
+- **Remove Liquidity (4):** pass, error, rewards-debug-1, rewards-debug-2
+- **Swaps (4):** swap-a-b-pass, swap-b-a-pass, swap-errors, swap-lock-adjustment
+- **Scenarios (1):** liquidity-scenarios
+- **Read-only (2):** street-market-read-only, get-market-info
+- **Admin (1):** street-market-set-contract-owner
+
+### street-nft
+
+**Functions (9/9):**
+- `mint` (pass + auth error)
+- `transfer` (pass + errors)
+- `set-contract-owner` (pass + error)
+- `set-base-uri` (pass + error)
+- `get-contract-owner` (read-only)
+- `get-owner` (read-only)
+- `get-token-uri` (read-only)
+- `get-base-uri` (read-only)
+- `get-user-minted-tokens` (read-only)
+
+**Errors (4/4):**
+- ERR_NOT_CONTRACT_OWNER (u961)
+- ERR_NOT_AUTHORIZED (u962)
+- ERR_NOT_FOUND (u963)
+- ERR_NOT_OWNER (u964)
+
+**Test Files (5):**
+- street-nft-mint-pass (multiple users)
+- street-nft-mint-auth (unauthorized call)
+- street-nft-transfer (pass + 3 errors)
+- street-nft-set-functions (owner/uri setting)
+- street-nft-read-only (5 read-only tests)
+
+### street-rewards
+
+**Functions (14 total):**
+- `claim-rewards` (pass)
+- `cleanup-rewards` (pass + debug tests)
+- `decrease-rewards` (debug test)
+- `donate-rewards` (bug test)
+- `increase-rewards` (debug test)
+- `set-contract-owner` (pass + error)
+- `update-rewards-a` (pass + errors)
+- `update-rewards-b` (pass + errors)
+- `calculate-cleanup-rewards` (private) indirectly
+- `transformer` (private) indirectly
+- `get-cleanup-rewards` (pass)
+- `get-contract-owner` (shared tests)
+- `get-reward-pool-info` (read-only)
+- `get-reward-user-info` (read-only)
+
+**Errors (4/4):**
+- ERR_ZERO_AMOUNT (u971)
+- ERR_NOT_CONTRACT_OWNER (u972)
+- ERR_NOT_AUTHORIZED (u973)
+- ERR_CLEANUP_INTERVAL (u974)
+
+**Test Files (15):**
+- claim-rewards-wallet1-pass
+- cleanup-rewards-pass
+- cleanup-rewards-error (ERR_CLEANUP_INTERVAL)
+- cleanup-rewards-debug-1
+- cleanup-rewards-debug-2
+- get-cleanup-rewards-pass
+- donate-rewards
+- decrease-rewards-debug
+- increase-rewards-debug
+- increase-decrease-rewards-debug-1
+- increase-decrease-rewards-debug-2
+- update-rewards-a (pass + 2 errors)
+- update-rewards-b (pass + 2 errors)
+- rewards-read-only (2 read-only tests)
+- street-rewards-set-contract-owner (pass + error)
+
+### street-token
+
+**Functions (11 total):**
+- `mint` (auth tests, 3 scenarios)
+- `set-contract-owner` (pass + error)
+- `set-token-uri` (pass + error)
+- `transfer` (pass)
+- `get-contract-owner` (shared tests)
+- `get-balance` (shared tests)
+- `get-decimals` (shared tests)
+- `get-name` (shared tests)
+- `get-symbol` (shared tests)
+- `get-token-uri` (shared tests)
+- `get-total-supply` (initial mint verification)
+
+**Errors (4/4):**
+- ERR_ZERO_AMOUNT (u981)
+- ERR_NOT_CONTRACT_OWNER (u982)
+- ERR_NOT_TOKEN_OWNER (u983)
+- ERR_NOT_AUTHORIZED (u984)
+
+**Test Files (7):**
+- street-token-initial-mint (2 tests)
+- street-token-set-token-uri (pass + error)
+- street-token-set-contract-owner (pass + error)
+- street-token-transfer-pass (pass)
+- street-token-transfer-error (2 error tests)
+- street-mint-auth (3 auth scenarios)
+- street-token-read-only (8 tests)
+
+### welsh-faucet
+
+The `welsh-faucet` is only available on testnet and not deployed to mainnet.  This contract is for testing and development purposes only. 
+
+**Functions (10/10):**
+- `request` (pass + error + cooldown scenarios)
+- `set-contract-owner` (pass + error)
+- `set-cooldown` (cooldown pass test)
+- `transformer` (private) indirectly
+- `get-balance` (read-only)
+- `get-cooldown` (read-only)
+- `get-contract-owner` (read-only)
+- `get-last-request` (read-only)
+- `get-next-request` (read-only)
+- `get-faucet-info` (read-only)
+
+**Errors (2/2):**
+- ERR_NOT_CONTRACT_OWNER (u991)
+- ERR_COOLDOWN (u992)
+
+**Test Files (5):**
+- welsh-faucet-request-pass
+- welsh-faucet-request-error
+- welsh-faucet-cooldown-pass
+- welsh-faucet-read-only
+- welsh-faucet-set-contract-owner (pass + error)
+
+### welshcorgicoin
+
+The `welshcorgicoin` contract was utilized extensively during teh development and testing of the Welsh Street Exchange, however this contract was not modified in anyway to maintain it's mainnet behavior and integrity. An exact copy was used to replicate production environment conditions.
+
+
+## Coverage Summary
+
+| Metric | Count | Percentage |
+|--------|-------|------------|
+| Total Functions | 79 | - |
+| Functions Tested | 79 | 100% |
+| Total Error Conditions | 35 | - |
+| Error Conditions Tested | 35 | 100% |
+| Test Files | 85 | - |
+| Contracts with 100% Function Coverage | 9 of 9 | 100% |
+| Contracts with 100% Error Coverage | 9 of 9 | 100% |
+
+- 85 test files
+- 154 tests
+- 100% function coverage
+- 100% error coverage
+
+## Running the Tests
+
+The unit tests can be run by using `npm`. Make sure `npm` is installed on the system. In the file `./tests/vitestconfig.ts` the `disp` parameter may be set to `true` to view the test output logs in the console.
+
+```ts
+export const disp = true;
+```
+
+**Follow these steps to run the tests:**
+
+1. Fork repository: [Welsh Street Contracts](https://github.com/welshstreet/contracts.git)
+
+```bash copy filename="terminal"
+git clone https://github.com/welshstreet/contracts.git
+```
+
+2. Install Dependencies
+
+```bash copy filename="terminal"
+cd tests && npm install
+```
+
+3. Run Tests
+
+```bash copy filename="terminal"
+npm run test
+```

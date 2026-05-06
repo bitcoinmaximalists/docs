@@ -1,2 +1,3 @@
-# docs
-Bitcoin Maximalists Documentation
+# Bitcoin Maximalists Documentation
+
+- This is a test

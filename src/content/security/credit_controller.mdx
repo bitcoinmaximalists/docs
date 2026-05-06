@@ -1,0 +1,119 @@
+import { Callout } from 'nextra/components'
+
+# Credit Controller Audit
+
+## Description
+
+The credit controller is the sole authorized caller for CREDIT token transfers. It wraps `credit-token.transfer` with reward accounting, ensuring `street-rewards` state stays synchronized with LP token balances.
+
+## Findings
+
+| ID | Finding | Severity | Status |
+|----|---------|----------|--------|
+| I-01 | Single-step ownership transfer | Informational | By Design |
+
+### [I-01] Single-step ownership transfer
+
+- **Severity:** Informational
+- **Location:** `set-contract-owner`
+- **Description:** Ownership transfers in a single step with no confirmation from the new owner. If transferred to an incorrect address, ownership is permanently lost.
+- **Impact:** Low — the contract owner has no economic privileges (cannot mint, burn, or move funds). Ownership only controls the `set-contract-owner` function itself.
+- **Status:** Accepted. Consistent pattern across all protocol contracts. Minimal risk given the owner has no financial control.
+
+### Checklist Results
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Access Control | Pass — `set-contract-owner` gated by `contract-caller` check. `transfer` enforces caller-is-sender. |
+| 2 | Input Validation | Pass — zero-amount check prevents no-op reward state updates. |
+| 3 | Arithmetic | N/A — no arithmetic operations. |
+| 4 | Reentrancy / Call Ordering | Pass — Clarity atomic transactions. If any `try!` fails, entire transaction reverts. |
+| 5 | Asset Safety | Pass — `as-contract` delegates to `credit-token.transfer` with controller as authorized caller. Balance pre-check fails early. |
+| 6 | Trait Usage | N/A — no trait parameters. |
+| 7 | Authorization Chains | Pass — uses `contract-caller` (not `tx-sender`) for both owner check and sender identity, preventing intermediary contract abuse. |
+| 8 | State Consistency | Pass — reward `decrease-rewards` and `increase-rewards` are both wrapped in `try!`. Failure at any step reverts all state. |
+| 9 | Denial of Service | Pass — no blocking conditions. Any valid holder can transfer at any time. |
+| 10 | Upgrade / Migration | Informational — single-step ownership transfer (see I-01). |
+
+## Recommendations
+
+No code changes recommended. The single informational finding is a known design choice consistent across the protocol.
+
+## Contract Comments
+
+<div className="code-transparent">
+```clarity
+;; Welsh Street Credit Controller
+
+;; errors
+;; 4 unique error codes with u91x prefix — all tested, no overlap with other contracts
+(define-constant ERR_ZERO_AMOUNT (err u911))
+(define-constant ERR_NOT_CONTRACT_OWNER (err u912))
+(define-constant ERR_NOT_TOKEN_OWNER (err u913))
+(define-constant ERR_BALANCE (err u914))
+
+;; variables
+
+;; initialized to deployer at deployment — transferable via set-contract-owner
+(define-data-var contract-owner principal tx-sender)
+
+;; public entry point for CREDIT transfers — enforces reward accounting atomically
+(define-public (transfer
+    (amount uint) 
+    (sender principal) 
+    (recipient principal)
+    (memo (optional (buff 34)))
+    )
+  (let (
+    ;; unwrap-panic is safe here — get-balance always returns (ok uint) for any principal
+      (sender-balance (unwrap-panic (contract-call? .credit-token get-balance sender)))
+    )
+    (begin
+      ;; prevents zero-amount transfers that would update reward state without economic effect
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      
+      ;; uses contract-caller (not tx-sender) — prevents intermediary contracts from
+      ;; transferring on behalf of a user without their direct invocation
+      (asserts! (is-eq contract-caller sender) ERR_NOT_TOKEN_OWNER)
+      
+      ;; redundant with credit-token's own balance check but fails early, saving gas
+      (asserts! (>= sender-balance amount) ERR_BALANCE)
+      
+      ;; as-contract delegates to credit-token.transfer — the controller is the authorized caller
+      (try! (as-contract? ()
+        (unwrap-panic (contract-call? .credit-token transfer amount sender recipient memo))))
+      
+      ;; reward state updated after transfer — atomic transaction guarantees consistency
+      (try! (contract-call? .street-rewards decrease-rewards sender amount))
+      
+      ;; if decrease succeeds but increase fails, transaction reverts entirely (atomic)
+      (try! (contract-call? .street-rewards increase-rewards recipient amount))
+      
+      ;; memo printed for indexer visibility — no state impact
+      (begin
+        (match memo content (print content) 0x)
+        (ok {
+          amount: amount
+        })
+      )
+    )
+  )
+)
+
+;; single-step ownership transfer — no two-step confirmation pattern
+(define-public (set-contract-owner (new-owner principal))
+  (begin
+    ;; contract-caller check — only direct caller, not tx-sender chain
+    (asserts! (is-eq contract-caller (var-get contract-owner)) ERR_NOT_CONTRACT_OWNER)
+    
+    ;; irreversible if transferred to wrong address — no recovery mechanism by design
+    (var-set contract-owner new-owner)
+    (ok true)
+  )
+)
+
+;; read-only — no access control needed, ownership is public information
+(define-read-only (get-contract-owner)
+  (ok (var-get contract-owner)))
+```
+</div>

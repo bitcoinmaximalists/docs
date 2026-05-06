@@ -1,0 +1,194 @@
+import { Callout } from 'nextra/components'
+
+# Credit Token Audit
+
+## Description
+
+The credit token is the LP token for the Welsh Street DEX, implementing the SIP-010 fungible token standard. It represents a user's share of the liquidity pool. Minting and burning are restricted to `.street-market` (during add/remove liquidity), while transfers are restricted to `.street-market` and `.credit-controller` (which wraps transfers with reward accounting). The `transfer` function has contract-caller authorization guards and is tested extensively during the `street-market` and `credit-controller` test suites.
+
+## Findings
+
+| ID | Finding | Severity | Status |
+|----|---------|----------|--------|
+| I-01 | Single-step ownership transfer | Informational | By Design |
+| I-02 | Delegated sender authorization in transfer | Informational | By Design |
+
+### [I-01] Single-step ownership transfer
+
+- **Severity:** Informational
+- **Location:** `set-contract-owner`
+- **Description:** Ownership transfers in a single step with no confirmation from the new owner. If transferred to an incorrect address, ownership is permanently lost.
+- **Impact:** Low — the contract owner cannot mint, burn, or transfer tokens. Ownership only controls `set-contract-owner` and `set-token-uri`.
+- **Status:** Accepted. Consistent pattern across all protocol contracts. Minimal risk given the owner has no financial control.
+
+### [I-02] Delegated sender authorization in transfer
+
+- **Severity:** Informational
+- **Location:** `transfer`
+- **Description:** The `transfer` function does not verify that `sender` matches `tx-sender`. Instead, it restricts callers to `.street-market` and `.credit-controller`, delegating sender validation to those contracts. Users cannot transfer CREDIT tokens directly.
+- **Impact:** None under current design — `.credit-controller` enforces `is-eq contract-caller sender` before calling transfer. This is the intended authorization model for LP tokens where reward state must stay synchronized.
+- **Status:** Accepted. Deliberate design to route all LP transfers through the controller for reward accounting.
+
+### Checklist Results
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Access Control | Pass — mint/burn gated to `.street-market`. Transfer gated to `.street-market` or `.credit-controller`. Admin functions gated by `contract-owner`. |
+| 2 | Input Validation | Pass — zero-amount check on burn, mint, and transfer. |
+| 3 | Arithmetic | N/A — no arithmetic operations. |
+| 4 | Reentrancy / Call Ordering | Pass — Clarity atomic transactions. Each function is a single atomic block. |
+| 5 | Asset Safety | Pass — owner cannot mint, burn, or transfer tokens. Only protocol contracts can. |
+| 6 | Trait Usage | Pass — implements SIP-010 trait. No trait parameters accepted. |
+| 7 | Authorization Chains | Pass — uses `contract-caller` consistently for all authorization checks. `tx-sender` used only as mint/burn target (correct — carries through from user's original call). |
+| 8 | State Consistency | Pass — `ft-mint?`, `ft-burn?`, and `ft-transfer?` are atomic. Failures revert via `try!`. |
+| 9 | Denial of Service | Pass — no blocking conditions. No loops, no dependencies on external mutable state. |
+| 10 | Upgrade / Migration | Informational — single-step ownership transfer (see I-01). Token URI updatable by owner. |
+
+## Recommendations
+
+No code changes recommended. Both informational findings are intentional design choices consistent across the protocol.
+
+## Contract Comments
+
+<div className="code-transparent">
+```clarity
+;; Welsh Street Credit
+
+;; SIP-010 trait implementation — standard fungible token interface
+(impl-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
+
+;; LP token representing liquidity pool shares — no maximum supply
+(define-fungible-token credit)
+
+;; errors
+;; 3 unique error codes with u92x prefix — all tested, no overlap with other contracts
+(define-constant ERR_ZERO_AMOUNT (err u921))
+(define-constant ERR_NOT_CONTRACT_OWNER (err u922))
+(define-constant ERR_NOT_AUTHORIZED (err u923))
+
+;; constants
+;; immutable — cannot be changed after deployment
+(define-constant TOKEN_DECIMALS u6)
+(define-constant TOKEN_NAME "Welsh Street Credit")
+(define-constant TOKEN_SYMBOL "CREDIT")
+
+;; variables
+
+;; initialized to deployer at deployment — transferable via set-contract-owner
+(define-data-var contract-owner principal tx-sender)
+
+;; IPFS-hosted metadata — updatable by contract-owner only
+(define-data-var token-uri (optional (string-utf8 256)) (some u"https://ipfs.io/ipfs/bafybeiexeg4tyoslafsnfpnob2kihdtl2lnhz4fupldtbtpp3y534ebkty/credit.json"))
+
+;; burns CREDIT from tx-sender's balance — called by street-market during remove-liquidity
+(define-public (burn (amount uint))
+    (begin
+      ;; prevents zero-amount burns that would succeed as no-ops
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+      ;; only street-market can burn — owner cannot burn tokens
+      (asserts! (is-eq contract-caller .street-market) ERR_NOT_AUTHORIZED)
+
+      ;; ft-burn? removes from tx-sender (the user who initiated the transaction)
+      ;; fails if insufficient balance — atomic revert
+      (try! (ft-burn? credit amount tx-sender))
+      (ok {
+        amount: amount
+      })
+    )
+)
+
+;; mints CREDIT to tx-sender's balance — called by street-market during add-liquidity
+(define-public (mint (amount uint))
+    (begin
+      ;; prevents zero-amount mints that would succeed as no-ops
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+      ;; only street-market can mint — owner cannot inflate supply
+      (asserts! (is-eq contract-caller .street-market) ERR_NOT_AUTHORIZED)
+
+      ;; ft-mint? adds to tx-sender (the user who initiated the transaction)
+      ;; no supply cap — LP share minting is uncapped by design
+      (try! (ft-mint? credit amount tx-sender))
+      (ok {
+        amount: amount
+      })
+    )
+)
+
+;; single-step ownership transfer — no two-step confirmation pattern (see I-01)
+(define-public (set-contract-owner (new-owner principal))
+  (begin
+    ;; contract-caller check — only direct caller, not tx-sender chain
+    (asserts! (is-eq contract-caller (var-get contract-owner)) ERR_NOT_CONTRACT_OWNER)
+
+    ;; irreversible if transferred to wrong address — owner controls only metadata, not funds
+    (var-set contract-owner new-owner)
+    (ok true)
+  )
+)
+
+;; updates IPFS token metadata URI — cosmetic only, no economic impact
+(define-public (set-token-uri (value (string-utf8 256)))
+  (begin
+    ;; owner-only — same contract-caller pattern as set-contract-owner
+    (asserts! (is-eq contract-caller (var-get contract-owner)) ERR_NOT_CONTRACT_OWNER)
+    (var-set token-uri (some value))
+    (ok true)
+  )
+)
+
+;; LP token transfer — restricted to protocol contracts only (see I-02)
+(define-public (transfer
+    (amount uint)
+    (sender principal)
+    (recipient principal)
+    (memo (optional (buff 34)))
+  )
+  (begin
+    ;; prevents zero-amount transfers
+    (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+
+    ;; whitelist: only street-market or credit-controller can call
+    ;; users cannot transfer CREDIT directly — must go through credit-controller
+    ;; which synchronizes reward state on every transfer
+    (asserts! (or (is-eq contract-caller .street-market) 
+                  (is-eq contract-caller .credit-controller)) ERR_NOT_AUTHORIZED)
+
+    ;; ft-transfer? enforces sender has sufficient balance — atomic revert on failure
+    ;; sender authorization delegated to calling contract (credit-controller checks is-eq contract-caller sender)
+    (try! (ft-transfer? credit amount sender recipient))
+
+    ;; memo printed for indexer visibility — no state impact
+    (match memo content (print content) 0x)
+    (ok true)
+  )
+)
+
+;; === READ-ONLY FUNCTIONS — standard SIP-010 interface, no access control needed ===
+
+(define-read-only (get-balance (who principal))
+  (ok (ft-get-balance credit who)))
+
+;; returns current contract owner — public information
+(define-read-only (get-contract-owner)
+  (ok (var-get contract-owner)))
+
+(define-read-only (get-decimals)
+  (ok TOKEN_DECIMALS))
+
+(define-read-only (get-name)
+  (ok TOKEN_NAME))
+
+(define-read-only (get-symbol)
+  (ok TOKEN_SYMBOL))
+
+;; returns mutable token URI — updatable by owner via set-token-uri
+(define-read-only (get-token-uri)
+  (ok (var-get token-uri)))
+
+;; total minted minus burned — tracks outstanding LP share supply
+(define-read-only (get-total-supply)
+  (ok (ft-get-supply credit)))
+```
+</div>

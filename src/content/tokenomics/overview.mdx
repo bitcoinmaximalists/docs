@@ -1,0 +1,71 @@
+# Tokenomics Overview
+
+The tokenomic section explains the STREET issuance economics, how emissions are executed on-chain, how the initial supply is allocated. The tokenomics are broken down into the three main areas below:
+
+- **Issuance** explains the long-run fixed-emission supply policy and comparisons to fixed supply and fixed inflation policies including the economic tradeoffs between scarcity and rewards incentives of each model.
+
+- **Emissions** covers the on-chain execution mechanics: how Bitcoin blocks pace rewards, how epochs work, and triggering emission-mint events.
+
+- **Distribution** details the initial supply allocation of STREET at launch including allocations to initial liquidity and the initial distribution to the community.
+
+![WELSH Corgi giving a whiteboard presentation](/trading-floor-lb.png)
+
+## Baseline: 10B
+
+STREET follows a perpetual fixed-emission supply model. Because infinite-supply tokens lack a natural terminal value for modeling, a finite baseline is required to make practical economic projections and analyses. Therefore, all tokenomics models and analyses use a 10 Billion token baseline to mirror WELSH's 10B fixed-supply cap.
+
+At genesis, 3,000,000,000 STREET (30%) is allocated directly to the community through the Genesis NFT event. An additional 2,000,000,000 STREET is minted at `street-token` contract deployment to provision the initial liquidity. This establishes an initial supply of 5,000,000,000 tokens.
+
+## Definitions
+
+Definitions below are provided in the context of this documentation and reflect how the terms are used throughout these pages.
+
+### Bitcoin Block
+
+A Bitcoin block is the preferred pacing signal for emissions. Referred to `burn-block-height` in Clarity smart contracts.
+
+### Cycle
+
+A cycle is the modeling unit used for annualized rates and plots (52,500 epochs ≈ 1 year).
+
+### Disinflationary
+
+Disinflationary means the inflation rate declines over time, even if new tokens continue to be issued.
+
+### Distribution
+
+Distribution describes how STREET supply is allocated at launch and through ongoing emissions, including the shares reserved for liquidity incentives.
+
+### Emissions
+
+Emissions are the on-chain mint events that produce and distribute STREET rewards over time.
+
+## Emission Mint
+
+Calling the `street-token` `mint()` function via the `emission-controller` contract. On the frontend, emission minting is referred to as mining, only to distinguish it from minting STREET and NFTs during the genesis event.
+
+### Epoch
+
+An epoch is one successful `emission-mint` execution. Epochs are programmatically limited to a maximum of 1 epoch per `burn-block-height`.
+
+### Fixed Emissions
+
+Fixed emissions means a constant amount of STREET is minted per issuance event, producing linear supply growth.
+
+### Fixed Inflation
+
+Fixed inflation means supply grows at a fixed percentage rate per year, which mechanically compounds over time.
+
+For the Fiat-style reference model in `issuance`, the annual inflation rate used in calculations is 3.29% (average US dollar inflation from 1914–2026 based on CPI).
+
+### Fixed Supply
+
+Fixed supply means total supply is capped, typically via an issuance schedule that reduces emissions over time and approaches a terminal limit.
+
+### Issuance
+
+Issuance describes the long-run supply policy (the rule that determines how total supply changes over time).
+
+## Street Mint
+
+Calling the `street-token` `mint()` function via the `street-controller` contract.

@@ -1,0 +1,191 @@
+# Welsh Street Controllers
+
+The controllers are a series of contracts that execute traditional on-chain functions such as `mint`, `burn` and `transfer` but also maintain accurate reward system accounting.  Various reward system accounting requires queries into `credit-token` supply an other metrics that recreate circular dependencies in the clarity runtime. The three main controller contracts `credit-controller`, `emission-controller` and `street-controller` eliminate these circular dependencies.
+
+## Credit Controller
+
+The `credit-controller` contract maintains reward system accounting for the sender and recipient during a `credit-token` `transfer`.  The index reward system depends on the user's index and cumulative debt maintained in the `users` data map in the `street-rewards` contract. After a `transfer` is executed, the `credit-controller` calls the `decrease-rewards` and `increase-rewards` functions to update the `sender` and `recipient` rewards accounting.
+
+<div className="code-transparent">
+```clarity
+;; Welsh Street Credit Controller
+
+(define-public (transfer
+    (amount uint) 
+    (sender principal) 
+    (recipient principal)
+    (memo (optional (buff 34)))
+    )
+  (let (
+    (sender-balance (unwrap! (contract-call? .credit-token get-balance sender) ERR_BALANCE))
+  )
+    (begin
+      (asserts! (> amount u0) ERR_ZERO_AMOUNT)
+      (asserts! (is-eq tx-sender sender) ERR_NOT_TOKEN_OWNER)
+      (asserts! (>= sender-balance amount) ERR_BALANCE)
+      
+      ;; traditional SIP-010 transfer pattern
+      (try! (as-contract? ()
+        (unwrap-panic (contract-call? .credit-token transfer amount sender recipient memo))))
+
+      ;; updates sender rewards system accounting
+      (try! (as-contract (contract-call? .street-rewards decrease-rewards sender amount)))
+      
+      ;; updates recipient rewards system accounting
+      (try! (as-contract (contract-call? .street-rewards increase-rewards recipient amount)))
+
+      (match memo content (print content) 0x)
+      (ok {
+        amount-lp: amount
+      })
+    )
+  )
+)
+```
+</div>
+## Emission Controller
+
+The `emission-controller` executes a series of functionality related to `street-token` emissions and maintains a series of internal accounting metrics. The contract calls `mint` in the `street-token` contract to mint STREET directly to the `last-caller` as `BOUNTY` and to the `street-rewards` contract as `REWARD`.
+
+After the `mint` to `street-rewards` the `emission-controller` calls `emission-rewards` to update the rewards system accounting with the newly minted STREET and to allocate emissions proportionally across CREDIT positions.
+
+The `BOUNTY` exists as a small resistance to sybil attack. The amount is approximately 0.1% of the emission amount. The value is intentionally set relatively low such that in the circumstance a sophisticated bot or agent executes all emission triggers, that account could only accumulate 0.1% of the future STREET supply.
+
+<div className="code-transparent">
+```clarity
+;; Welsh Street Emission Controller
+
+;; constants
+
+;; mint STREET amount
+(define-constant AMOUNT u10000000000)
+
+;; threshold of credit holding. Reduces sybil attack and encourages network participation
+(define-constant THRESHOLD u1000)
+
+;; variables
+
+;; current epoch, only incremented on successful mints (bitcoin blocks can be skipped)
+(define-data-var current-epoch uint u0)
+
+;; tracking for once per block minting
+(define-data-var last-burn-block uint u0)
+
+(define-public (mint)
+  (let (
+      (last-mint (var-get last-burn-block))
+      (blocks-elapsed (- burn-block-height last-mint))
+      (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+      (caller-credit (unwrap-panic (contract-call? .credit-token get-balance contract-caller)))
+      (min-credit (/ total-lp THRESHOLD))
+    )
+    (begin
+      (asserts! (> total-lp u0) ERR_NO_LIQUIDITY)
+      (asserts! (>= blocks-elapsed u1) ERR_EMISSION_INTERVAL)
+
+      ;; must hold at least 1/1000 of credit supply      
+      (asserts! (>= caller-credit min-credit) ERR_NOT_ELIGIBLE)
+
+      ;; mints STREET tokens to rewards contract
+      (try! (contract-call? .street-token mint AMOUNT .street-rewards))
+      
+      ;; updates rewards accounting system with new street emissions
+      (try! (contract-call? .street-rewards update-rewards-b AMOUNT))
+      
+      ;; updates emission epoch
+      (var-set current-epoch (+ (var-get current-epoch) u1))
+      
+      ;; updates last burn block
+      (var-set last-burn-block burn-block-height)
+      
+      (ok {
+        amount: AMOUNT,
+        block: burn-block-height,
+        epoch: (var-get current-epoch),
+      })
+    )
+  )
+)
+```
+</div>
+
+## Street Controller
+
+The `street-controller` contract manages the STREET mint activities related to the Welsh Street Genesis NFT Event. The contract execution path begins by calling the `street-token` `mint` function that mints STREET directly to the contract caller. The contract also calls `street-nft` to mint a genesis NFT directly to the contract caller. 
+
+The `street-controller` contract collects a 1,000 WELSH donation per mint as anti-Sybil mechanism. The donation is transferred by the `street-controller` contract from the `tx-sender` to the `street-rewards` contract. The `street-controller` calls `update-rewards-a` to update the global rewards accounting with the donated WELSH.
+
+<div className="code-transparent">
+
+```clarity
+;; Welsh Street Controller
+
+;; constants
+
+;; increased mint amount every 21 mints
+(define-constant MINT_BONUS u1000000000000)
+
+;; standard STREET mint amount
+(define-constant MINT_STREET u100000000000)
+
+;; WELSH distributed to LP providers.  Protects against sybil attack
+(define-constant DONATE_WELSH u1000000000)
+
+;; Maximum STREET mints and NFTs minted
+(define-constant MINT_CAP u21000)
+
+;; variables
+
+;; internal counter to track STREET mints and NFTs
+(define-data-var mint-count uint u0)
+
+(define-public (mint)
+  (let (
+      (user-welsh (unwrap-panic (contract-call? .welshcorgicoin get-balance contract-caller)))
+      (total-lp (unwrap-panic (contract-call? .credit-token get-total-supply)))
+      (count (+ (var-get mint-count) u1))
+      (is-milestone (is-eq (mod count u21) u0))
+      (mint-amount (if is-milestone MINT_BONUS MINT_STREET))
+    )
+    (begin
+      ;; mint only if there is liquidity
+      (asserts! (> total-lp u0) ERR_NO_LIQUIDITY)
+      
+      ;; check wallet for WELSH
+      (asserts! (>= user-welsh DONATE_WELSH) ERR_YOU_POOR)
+      
+      ;; Maximum 2 mints per wallet address
+      (asserts! (< (default-to u0 (map-get? users tx-sender)) u2) ERR_ALREADY_MINTED)
+      
+      ;; Maximum mint check
+      (asserts! (<= count MINT_CAP) ERR_MINT_CAP)
+      
+      ;; mints STREET to tx-sender
+      (try! (contract-call? .street-token mint mint-amount tx-sender))
+      
+      ;; mints a genesis NFT to the tx-sender as well
+      (try! (contract-call? .street-nft mint count tx-sender))
+
+      ;; collects 1000 WELSH from tx-sender as a donation and transfers to the street-rewards contract
+      (try! (contract-call? .welshcorgicoin transfer DONATE_WELSH tx-sender .street-rewards none))
+
+      ;; updates global rewards accounting
+      (try! (contract-call? .street-rewards update-rewards-a DONATE_WELSH))
+      
+      ;; updates the user's NFT count in the user map
+      (map-set users tx-sender (+ (default-to u0 (map-get? users tx-sender)) u1))
+    
+      ;; updates the global mint count  
+      (var-set mint-count count)
+
+      (ok {
+        block: burn-block-height,
+        epoch: count,
+        reward: DONATE_WELSH, 
+        user: mint-amount
+      })
+    )
+  )
+)
+```
+</div>

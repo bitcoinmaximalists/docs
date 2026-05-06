@@ -1,0 +1,548 @@
+/* Welsh Street Exchange Documentation Styles */
+
+:root {
+  --orange: #ff6b35;
+  --blue: #60a5fa;
+  --purple: #c084fc;
+  --red: #ef4444;
+  --green: #22c55e;
+  --red-rgb: 239, 68, 68;
+  --green-rgb: 34, 197, 94;
+  --dark: rgba(0, 0, 0, 0.9);
+}
+
+/* Force dark mode always */
+html {
+  color-scheme: dark !important;
+}
+
+/* Override any light mode styles */
+html[class*="light"],
+html[data-theme="light"],
+body[class*="light"],
+body[data-theme="light"] {
+  color-scheme: dark !important;
+  background: transparent !important;
+  color: white !important;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  position: relative;
+}
+
+/* Full screen background image with overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/wall-street-lb.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  z-index: -2;
+}
+
+/* Mobile background fix */
+@media (max-width: 768px) {
+  body::before {
+    width: 100vw !important;
+    height: 100vh !important;
+    background-attachment: scroll !important;
+  }
+  
+  body {
+    padding-bottom: 100vh !important;
+  }
+}
+
+/* RGB overlay */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: -1;
+}
+
+/* Mobile overlay fix */
+@media (max-width: 768px) {
+  body::after {
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.75) !important;
+  }
+}
+
+a {
+    text-decoration: none;
+}
+
+/* Table styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2rem 0;
+}
+
+table th {
+  background-color: var(--dark);
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+table tr:hover {
+  background-color: rgba(255, 165, 0, 0.2);
+}
+
+/* Pros/cons column hover styling */
+table.pros-cons tr:hover {
+  background-color: transparent;
+}
+
+table.pros-cons tr:hover th.pros,
+table.pros-cons tr:hover td.pros {
+  background-color: rgba(var(--green-rgb), 0.15);
+}
+
+table.pros-cons tr:hover th.cons,
+table.pros-cons tr:hover td.cons {
+  background-color: rgba(var(--red-rgb), 0.15);
+}
+
+/* Summary table neutral column hover (orange) */
+table.summary-table.pros-cons tr:hover th.neutral,
+table.summary-table.pros-cons tr:hover td.neutral {
+  background-color: rgba(255, 107, 53, 0.15);
+}
+
+/* Advantage table styling - green hover */
+table.advantage tr:hover,
+.advantage table tr:hover {
+  background-color: rgba(var(--green-rgb), 0.15) !important;
+}
+
+/* Disadvantage table styling - red hover */
+table.disadvantage tr:hover,
+.disadvantage table tr:hover {
+  background-color: rgba(var(--red-rgb), 0.15) !important;
+}
+
+/* Summary tables reuse pros/cons styling via .pros and .cons classes */
+
+/* Optional: wrap fenced blocks in <div className="code-transparent"> */
+.code-transparent pre,
+pre.code-transparent {
+  margin-top: 1.5rem;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Blockquote styling - no left border, italic dark gray text */
+blockquote {
+  border-left: none !important;
+  color: #9ca3af !important; /* Tailwind gray-400 */
+  font-style: italic;
+}
+
+/* Centered equation-style blockquotes (used for math expressions) */
+.equation {
+  color: #9ca3af; /* Tailwind gray-400 */
+  font-style: italic;
+  text-align: center;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  margin-top: 1rem;
+  margin-left: auto;
+  margin-right: auto;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Logo Card Styling */
+.logo-card {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 2px solid transparent;
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: white;
+  transition: all 0.3s ease-in-out;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.logo-card:hover {
+  background-color: rgba(255, 165, 0, 0.1);
+  border-color: var(--orange);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+  text-decoration: none;
+}
+
+.logo-card-left {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logo-card-image {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.logo-card-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-grow: 1;
+  justify-content: center;
+}
+
+.logo-card-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: white;
+}
+
+.logo-card-description {
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.4;
+}
+
+.logo-card-link {
+  font-size: 0.9rem;
+  color: var(--orange);
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+/* Responsive logo cards */
+@media (max-width: 768px) {
+  .logo-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+    padding: 1.5rem 1rem;
+  }
+  
+  .logo-card-left {
+    justify-content: center;
+  }
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(95vh - 100px);
+  max-width: 1280px;
+  margin: auto;
+  padding: 2rem;
+
+  position: relative;
+}
+
+.main-title {
+  text-align: center;
+  font-size: 5rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  line-height: 1.1;
+}
+
+.subtitle {
+  text-align: center;
+  font-size: 4rem;
+  font-weight: bold;
+  color: gray;
+  margin-bottom: 3rem;
+  line-height: 1.1;
+}
+
+.description {
+  font-size: 1.25rem !important;
+  max-width: 540px !important;
+  /* line-height: 1.25 !important; */
+}
+
+.centered-image {
+  width: 300px;
+  height: auto;
+  margin: 2rem 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.button-container {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5rem; 
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 3rem;
+}
+
+/* Base button styling */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  min-width: 148px;
+  transition: all 0.3s ease-in-out;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Button base styles with transitions */
+a, .btn-welsh, .btn-exchange, .btn-documentation {
+  transition: all 0.3s ease-in-out !important;
+}
+
+/* Button hover colors */
+.btn-welsh:hover {
+    background-color: rgba(255, 165, 0, 0.2) !important; /* semi-transparent orange */
+    border-color: var(--orange) !important;
+    color: white !important
+}
+
+.btn-exchange:hover {
+    background-color: rgba(96, 165, 250, 0.2) !important; /* semi-transparent blue */
+    border-color: var(--blue) !important;
+    color: white !important
+}
+
+.btn-documentation:hover {
+    background-color: rgba(192, 132, 252, 0.2) !important; /* semi-transparent purple */
+    border-color: var(--purple) !important;
+    color: white !important
+}
+
+.btn-red:hover {
+  background-color: rgba(239, 68, 68, 0.2) !important; /* semi-transparent red */
+  border-color: #ef4444 !important;
+  color: white !important
+}
+
+.description {
+  font-size: 1.125rem;
+  line-height: 1.75;
+  text-align: center;
+  max-width: 720px;
+}
+
+/* Custom Footer Styling - Target both outer wrapper and inner footer */
+div:has(footer.custom-footer),
+footer.custom-footer {
+  height: 60px !important;
+  min-height: 60px !important;
+  max-height: 60px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+
+/* Force transparent background on all nested footer elements */
+footer.custom-footer *,
+div:has(footer.custom-footer) * {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Make sidebar footer background transparent */
+.nextra-sidebar-footer,
+div[class*="nextra-sidebar-footer"],
+div[class*="x:bg-nextra-bg"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.footer-link {
+  font-size: 0.8rem;
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: color 0.3s ease !important;
+}
+
+a:hover, .footer-link:hover {
+  color: var(--orange) !important; /* Red color on hover for footer links */
+  text-decoration: none !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .container {
+    padding: 1.5rem;
+  }
+  
+  .main-title,
+  .subtitle {
+    font-size: 2.5rem;
+  }
+  
+  .centered-image {
+    width: 250px;
+  }
+  
+  .description {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  
+  /* Mobile: Stack buttons vertically */
+  .button-container {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-title,
+  .subtitle {
+    font-size: 2rem;
+  }
+  
+  .centered-image {
+    width: 200px;
+  }
+}
+
+/* ============================================================================
+    BANNER
+   ============================================================================ */
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.banner-outer {
+  background: linear-gradient(90deg, 
+    var(--orange) 0%, 
+    var(--blue) 33%, 
+    var(--purple) 67%, 
+    var(--orange) 100%
+  );
+  background-size: 400% 100%;
+  animation: gradientShift 5s ease-in-out infinite;
+  position: relative;
+  z-index: 20;
+}
+
+.banner-inner {
+  position: relative;
+  z-index: 50;
+}
+
+.banner-inner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, 
+    var(--orange) 0%, 
+    var(--blue) 25%, 
+    var(--purple) 50%, 
+    var(--red) 75%, 
+    var(--orange) 100%
+  );
+  background-size: 400% 100%;
+  animation: gradientShift 3s ease-in-out infinite;
+  opacity: 0;
+  transition: opacity 1s ease-in-out;
+  z-index: -1;
+}
+
+.banner-outer:hover .banner-inner::before {
+  opacity: 1;
+}
+
+.banner-inner div {
+  transition: color 1s ease-in-out;
+  position: relative;
+  z-index: 10;
+}
+
+.banner-outer:hover .banner-inner div {
+  color: black !important;
+}
+
+/* ============================================================================
+    COPY PAGE DROPDOWN - Hide AI options
+   ============================================================================ */
+
+/* Hide "Open in ChatGPT" and "Open in Claude" options (2nd and 3rd items) */
+[id^="headlessui-listbox-options-"]:has([id^="headlessui-listbox-option-"]) [id^="headlessui-listbox-option-"]:nth-child(2),
+[id^="headlessui-listbox-options-"]:has([id^="headlessui-listbox-option-"]) [id^="headlessui-listbox-option-"]:nth-child(3) {
+  display: none !important;
+}
+
+/* Customize "Copy page" dropdown description text */
+[id^="headlessui-listbox-option-"]:first-child .x\:text-xs {
+  font-size: 0 !important;
+}
+
+[id^="headlessui-listbox-option-"]:first-child .x\:text-xs::after {
+  content: "As Markdown for LLMs";
+  font-size: 0.75rem;
+}
